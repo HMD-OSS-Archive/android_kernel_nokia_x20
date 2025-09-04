@@ -8,6 +8,7 @@
 #include "cts_earjack_detect.h"
 #include "cts_strerror.h"
 #include <drm/drm_panel.h>
+#include <linux/pm_runtime.h>
 
 struct chipone_ts_data *chipone_data;
 
@@ -22,7 +23,7 @@ static int cts_suspend(struct chipone_ts_data *cts_data)
     cts_info("Suspend");
     gpio_direction_output(412, 0);
     gpio_set_value(412, 0);
-    cts_info("gpio412 value suspend = %d\n", gpio_get_value(412));	
+    cts_info("gpio412 value suspend = %d\n", gpio_get_value(412));
 
     cts_lock_device(&cts_data->cts_dev);
     ret = cts_suspend_device(&cts_data->cts_dev);
@@ -60,6 +61,7 @@ static int cts_suspend(struct chipone_ts_data *cts_data)
             delay 20ms to ensure reliability */
     msleep(20);
 
+    pm_runtime_disable(cts_data->device);
     return 0;
 }
 
@@ -67,7 +69,8 @@ static int cts_resume(struct chipone_ts_data *cts_data)//static int cts_resume(s
 {
     int ret;
 	//struct chipone_ts_data *cts_data = chipone_data;
-    cts_info("[boe123]Resume");
+    cts_info("[boe123]Resume pm_runtime_enable begin");
+    pm_runtime_enable(cts_data->device);
 
 #ifdef CFG_CTS_GESTURE
     if (cts_is_gesture_wakeup_enabled(&cts_data->cts_dev)) {
@@ -107,7 +110,7 @@ static void cts_resume_work(struct work_struct *work)
 	struct chipone_ts_data *cts_data =  chipone_data;
 	gpio_direction_output(412, 1);
 	gpio_set_value(412, 1);
-	cts_info("gpio412 value resume = %d\n", gpio_get_value(412));	
+	cts_info("gpio412 value resume = %d\n", gpio_get_value(412));
 
 	cts_info("[boe]cts_resume_work \n");
     cts_resume(cts_data);
@@ -119,9 +122,9 @@ int drm_notifier_callback(struct notifier_block *self,
     struct drm_panel_notifier *evdata = data;
     int *blank = NULL;
     const struct cts_platform_data *pdata =
-        container_of(self, struct cts_platform_data, fb_notifier);	
+        container_of(self, struct cts_platform_data, fb_notifier);
     struct chipone_ts_data *cts_data =
-        container_of(pdata->cts_dev, struct chipone_ts_data, cts_dev);	
+        container_of(pdata->cts_dev, struct chipone_ts_data, cts_dev);
 	cts_info("[boe]enter drm_notifier_callback\n");
     if (!evdata) {
         cts_err("evdata is null");
@@ -252,11 +255,11 @@ static int cts_driver_probe(struct spi_device *client)
 #endif
 
     ret = cts_init_platform_data(cts_data->pdata, client);
-	
+
 	if ( ret != 0 ) {
-		cts_err(" cts_init_platform_data failed !");	
+		cts_err(" cts_init_platform_data failed !");
 		ret = -ENOMEM;
-		goto err_free_cts_data;	
+		goto err_free_cts_data;
 	}
 
     cts_data->cts_dev.pdata = cts_data->pdata;
@@ -273,7 +276,7 @@ static int cts_driver_probe(struct spi_device *client)
         cts_err("Create cts_wq workqueue failed");
         ret = -ENOMEM;
         goto err_deinit_platform_data;
-    }	
+    }
 
 #ifdef CONFIG_CTS_ESD_PROTECTION
     cts_data->esd_workqueue = create_singlethread_workqueue(CFG_CTS_DEVICE_NAME "-esd_workqueue");

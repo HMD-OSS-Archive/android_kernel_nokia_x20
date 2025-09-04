@@ -16,7 +16,7 @@
 static struct kobject *bootinfo_kobj = NULL;
 
 const u8 * sub_front_camera[]={"sub_front_camera not found!","Sunny_s5kgd1sp","Seasons_s5k4h7"}; //front_camera module information
-const u8 * main_camera[]={"main_camera not found!","Qtech_s5kgm1st","Qtech_s5kgw3sp"}; // main_camera module information
+const u8 * main_camera[]={"main_camera not found!","Qtech_s5kgm1st","Qtech_s5kgw3sp","Truly_hi4821q"}; // main_camera module information
 const u8 * wide_camera[]={"wide_camera not found!","Seasons_gc5035","Cxt_gc5035"}; //wide_camera module information
 const u8 * depth_camera[]={"depth_camera not found!","Seasons_gc02m1b","Cxt_ov02b1b"}; //depth_camera module information
 const u8 * macro_camera[]={"macro_camera not found!","Seasons_gc02m1","Cxt_ov02b10"}; //macro_camera module information

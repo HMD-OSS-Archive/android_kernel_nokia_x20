@@ -721,7 +721,6 @@ err_fw_download:
     return ret;
 }
 
-#if FTS_FW_NODE_EN
 static int fts_read_file(char *file_name, u8 **file_buf)
 {
     int ret = 0;
@@ -831,7 +830,6 @@ err_bin:
     }
     return ret;
 }
-#endif
 
 int fts_enter_test_environment(bool test_state)
 {

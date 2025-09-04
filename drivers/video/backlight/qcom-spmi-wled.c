@@ -271,11 +271,6 @@ struct wled {
 	bool force_mod_disable;
 	bool cabc_disabled;
 	bool use_psy;
-//merged by changxue.fang for thething,20210430,start
-#ifdef CONFIG_BOOST_BACKLIGHT_ENABLE
-	bool boost_status;
-#endif
-//merged by changxue.fang for thething,20210430,end
 	int (*cabc_config)(struct wled *wled, bool enable);
 
 	struct led_classdev flash_cdev;
@@ -322,12 +317,6 @@ static const char *const wled_iio_prop_names[] = {
 	[OCV] = "voltage_ocv",
 	[IBAT] = "current_now",
 };
-
-//merged by changxue.fang for thething,20210430,start
-#ifdef CONFIG_BOOST_BACKLIGHT_ENABLE
-extern bool get_boost_status(void);
-#endif
-//merged by changxue.fang for thething,20210430,end
 
 static int wled_flash_setup(struct wled *wled);
 
@@ -1305,15 +1294,6 @@ static int wled5_setup(struct wled *wled)
 			return rc;
 	}
 
-//merged by changxue.fang for thething,20210430,start
-#ifdef CONFIG_BOOST_BACKLIGHT_ENABLE
-	if(get_boost_status())
-		wled->cfg.fs_current = 10;
-	else
-		wled->cfg.fs_current = 8;
-#endif /*CONFIG_BOOST_BACKLIGHT_ENABLE*/
-//merged by changxue.fang for thething,20210430,end
-
 	/* Per sink/string configuration */
 	for (i = 0; (string_cfg >> i) != 0; i++) {
 		if (string_cfg & BIT(i)) {
@@ -1363,9 +1343,13 @@ static int wled5_setup(struct wled *wled)
 	rc = regmap_write(wled->regmap, addr, val);
 	if (rc < 0)
 		return rc;
-
+#ifdef TARGET_PRODUCT_PUNISHER
+	rc = regmap_write(wled->regmap,
+			wled->sink_addr + WLED_SINK_CURR_SINK_EN, 48);
+#else
 	rc = regmap_write(wled->regmap,
 			wled->sink_addr + WLED_SINK_CURR_SINK_EN, sink_en);
+#endif
 	if (rc < 0)
 		return rc;
 
@@ -2126,29 +2110,6 @@ static void wled_switch_brightness_set(struct led_classdev *cdev,
 
 	spin_unlock(&wled->flash_lock);
 }
-
-//merged by changxue.fang for thething,20210430,start
-#ifdef CONFIG_BOOST_BACKLIGHT_ENABLE
-static int  boost_wled_update_status(struct backlight_device *bl)
-{
-	struct wled *wled = bl_get_data(bl);
-	int rc = 0;
-
-	if(bl->props.boost_bl_status)
-		wled->boost_status = true;
-	else
-		wled->boost_status = false;
-
-	rc = wled5_setup(wled);
-	if(rc){
-		printk(KERN_ERR "%s: setup wled failed for boost backlight current\n", __func__);
-		return rc;
-	}
-
-	return rc;
-}
-#endif /*CONFIG_BOOST_BACKLIGHT_ENABLE*/
-//merged by changxue.fang for thething,20210430,end
 
 static int wled_flash_device_register(struct wled *wled)
 {

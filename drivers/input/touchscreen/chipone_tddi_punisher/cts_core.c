@@ -2038,11 +2038,13 @@ int cts_resume_device(struct cts_device *cts_dev)
         const struct cts_firmware *firmware;
 
         cts_info("Need update firmware when resume");
+		cts_spi_speed = 8000;
         firmware = cts_request_firmware(cts_dev->hwdata->hwid,
                 cts_dev->hwdata->fwid, 0);
         if (firmware) {
             ret = cts_update_firmware(cts_dev, firmware, true);
             cts_release_firmware(firmware);
+			cts_spi_speed = 1000;
 
             if (ret) {
                 cts_err("Update default firmware failed %d", ret);

@@ -30,7 +30,7 @@ char *argv[MAX_ARG_NUM];
 
 static int jitter_test_frame = 10;
 static s16 *manualdiff_base = NULL;
-u16 cts_spi_speed = 8000;
+u16 cts_spi_speed = 1000;
 
 extern int gesture_mode;
 
@@ -337,7 +337,7 @@ static ssize_t curr_firmware_version_show(struct device *dev,
 {
     struct chipone_ts_data *cts_data = dev_get_drvdata(dev);
 
-    return scnprintf(buf, PAGE_SIZE, "TCL-P660-ICNL9911C_AA-V3.2_20210531-fw:0x%04x\n",
+    return scnprintf(buf, PAGE_SIZE, "BOE-P660-ICNL9911C_AA-V3.2_20210531-fw:0x%04x\n",
         cts_data->cts_dev.fwdata.version);
 }
 static DEVICE_ATTR(curr_version, S_IRUGO, curr_firmware_version_show, NULL);

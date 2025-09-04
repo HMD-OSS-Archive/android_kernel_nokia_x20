@@ -5,6 +5,8 @@
 
 #include <linux/platform_device.h>
 extern struct chipone_ts_data *chipone_data;
+extern u16 cts_spi_speed;
+
 enum cts_dev_hw_reg {
     CTS_DEV_HW_REG_HARDWARE_ID = 0x30000u,
     CTS_DEV_HW_REG_CLOCK_GATING = 0x30004u,

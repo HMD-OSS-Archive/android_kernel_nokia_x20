@@ -151,6 +151,7 @@ config LEDS_LM3530
 
 config LEDS_LM3532
 	tristate "LCD Backlight driver for LM3532"
+	select REGMAP_I2C
 	depends on LEDS_CLASS
 	depends on I2C
 	help
@@ -880,7 +881,7 @@ config LEDS_SUNLIGHT
 	tristate "LED support for HMD GLOBAL, Inc. sunlight_led"
 	depends on LEDS_CLASS && OF
 	help
-	  This driver supports the sunlight module found in chino-e, Inc.
+	  This driver supports the sunlight module found in HMD.
 
 config LEDS_QPNP_VIBRATOR_LDO
 	tristate "Vibrator-LDO support for QPNP PMIC"

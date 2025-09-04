@@ -1223,7 +1223,7 @@ static int abov_fw_update(bool force)
 	checksum_l_bin = fw->data[9];
 	LOG_INFO("Version in file is:0x%02x ,ModelNo in file is:0x%02x\n" ,fw_file_version ,fw_file_modeno);
 
-	if ((force) || (fw_version < fw_file_version) || (fw_modelno != fw_file_modeno)) {
+	if ((force) || (fw_version != fw_file_version) || (fw_modelno != fw_file_modeno)) {
 		LOG_INFO("Firmware is not latest,going to fw upgrade...\n");
 		fw_upgrade = true;
 	} else {
@@ -1773,9 +1773,9 @@ static int abov_probe(struct i2c_client *client, const struct i2c_device_id *id)
 
 		abovXX_sar_init(this);
 
-		write_register(this, ABOV_CTRL_MODE_REG, ABOV_CTRL_MODE_STOP);
+		//write_register(this, ABOV_CTRL_MODE_REG, ABOV_CTRL_MODE_STOP);
 		
-		mEnabled = 0;
+		mEnabled = 1;
 
 		this->loading_fw = false;
 		if (isForceUpdate == true) {

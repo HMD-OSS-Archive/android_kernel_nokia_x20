@@ -1079,6 +1079,7 @@ static struct mm_struct *mm_init(struct mm_struct *mm, struct task_struct *p,
 	mm->pmd_huge_pte = NULL;
 #endif
 	mm_init_uprobes_state(mm);
+	hugetlb_count_init(mm);
 
 	if (current->mm) {
 		mm->flags = current->mm->flags & MMF_INIT_MASK;
@@ -1095,6 +1096,8 @@ static struct mm_struct *mm_init(struct mm_struct *mm, struct task_struct *p,
 		goto fail_nocontext;
 
 	mm->user_ns = get_user_ns(user_ns);
+	// modify for google MLRU
+	lru_gen_init_mm(mm);
 	return mm;
 
 fail_nocontext:
@@ -1137,6 +1140,8 @@ static inline void __mmput(struct mm_struct *mm)
 	}
 	if (mm->binfmt)
 		module_put(mm->binfmt->module);
+	// modify for google MLRU
+	lru_gen_del_mm(mm);
 	mmdrop(mm);
 }
 
@@ -2233,10 +2238,6 @@ static __latent_entropy struct task_struct *copy_process(
 		goto bad_fork_cancel_cgroup;
 	}
 
-	/* past the last point of failure */
-	if (pidfile)
-		fd_install(pidfd, pidfile);
-
 	init_task_pid_links(p);
 	if (likely(p->pid)) {
 		ptrace_init_task(p, (clone_flags & CLONE_PTRACE) || trace);
@@ -2284,6 +2285,9 @@ static __latent_entropy struct task_struct *copy_process(
 	spin_unlock(&current->sighand->siglock);
 	syscall_tracepoint_update(p);
 	write_unlock_irq(&tasklist_lock);
+
+	if (pidfile)
+		fd_install(pidfd, pidfile);
 
 	proc_fork_connector(p);
 	cgroup_post_fork(p);
@@ -2453,7 +2457,15 @@ long _do_fork(struct kernel_clone_args *args)
 		init_completion(&vfork);
 		get_task_struct(p);
 	}
-
+#ifdef CONFIG_LRU_GEN
+	// modify for google MLRU
+	if (IS_ENABLED(CONFIG_LRU_GEN) && !(clone_flags & CLONE_VM)) {
+		/* lock the task to synchronize with memcg migration */
+		task_lock(p);
+		lru_gen_add_mm(p->mm);
+		task_unlock(p);
+	}
+#endif //#ifdef CONFIG_LRU_GEN
 	wake_up_new_task(p);
 
 	/* forking complete and child started to run, tell ptracer */

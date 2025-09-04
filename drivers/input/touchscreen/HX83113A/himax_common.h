@@ -171,6 +171,10 @@ int drm_notifier_callback(struct notifier_block *self,
 			unsigned long event, void *data);
 #endif
 
+#if defined(HX_USB_DETECT_GLOBAL)
+int usb_notifier_callback(struct notifier_block *nb, unsigned long evt, void *ptr);
+#endif
+
 #define HX_MAX_WRITE_SZ    (64 * 1024 + 4)
 #define HX_MAX_READ_SZ		(1024)
 
@@ -490,6 +494,14 @@ struct himax_ts_data {
 	struct delayed_work work_att;
 #endif
 
+#if defined(HX_USB_DETECT_GLOBAL)
+	struct notifier_block usb_notif;
+	struct power_supply	*usb_psy;
+	struct power_supply	*pc_psy;
+	struct workqueue_struct *himax_usb_wq;
+	struct delayed_work work_usb;
+#endif
+
 	struct workqueue_struct *flash_wq;
 	struct work_struct flash_work;
 	struct workqueue_struct *himax_boot_upgrade_wq;
@@ -527,6 +539,13 @@ struct himax_ts_data {
 #endif
 
     struct platform_device *tp_gesture_pdev; // ning.wei++
+
+#if defined(CONFIG_PM) && FTS_PATCH_COMERR_PM
+	struct completion pm_completion;
+	bool pm_suspend;
+#endif
+
+
 };
 
 struct himax_debug {

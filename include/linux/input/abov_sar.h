@@ -44,9 +44,9 @@
 #define ABOV_REF1_CAP_MSB_REG       0x20
 #define ABOV_REF1_CAP_LSB_REG       0x21
 
-#define ABOV_CTRL_MODE_ACTIVE       0x00
-#define ABOV_CTRL_MODE_SLEEP        0x01
-#define ABOV_CTRL_MODE_STOP         0x02
+#define ABOV_CTRL_MODE_ACTIVE       0x00 //0x00
+#define ABOV_CTRL_MODE_SLEEP        0x01 //0x01
+#define ABOV_CTRL_MODE_STOP         0x02 //0x02
 
 #define ABOV_DETECT_FAIL            0x00
 #define ABOV_DETECT_SUCCESS         0x01

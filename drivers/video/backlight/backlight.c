@@ -217,75 +217,6 @@ static ssize_t brightness_store(struct device *dev,
 }
 static DEVICE_ATTR_RW(brightness);
 
-//merged by changxue.fang for thething,20210430,start
-#ifdef CONFIG_BOOST_BACKLIGHT_ENABLE
-bool boost_status = false;
-bool get_boost_status(void)
-{
-	return boost_status;
-}
-EXPORT_SYMBOL(get_boost_status);
-static ssize_t boost_backlight_show(struct device *dev,
-		struct device_attribute *attr, char *buf)
-{
-	struct backlight_device *bd = to_backlight_device(dev);
-	int ret;
-	ret = boost_status;
-	printk(KERN_ERR "%s:Hisense brightness boost=%d, brightness=%d\n", __func__, ret, bd->props.brightness);
-	return sprintf(buf, "%d\n", ret);
-}
-
-int boost_backlight_device_set_brightness(struct backlight_device *bd,
-				   bool  enable)
-{
-	int rc = -ENXIO;
-
-	mutex_lock(&bd->ops_lock);
-	if (bd->ops) {
-		if (enable > bd->props.max_brightness)
-			rc = -EINVAL;
-		else {
-			printk(KERN_ERR "%s:Hisense brightness set boost %d\n", __func__, enable);
-			bd->props.boost_bl_status = enable;
-			rc = boost_backlight_update_status(bd);
-		}
-	}
-	mutex_unlock(&bd->ops_lock);
-
-	backlight_generate_event(bd, BACKLIGHT_UPDATE_SYSFS);
-
-	rc = 0;
-	return rc;
-}
-EXPORT_SYMBOL(boost_backlight_device_set_brightness);
-
-static ssize_t boost_backlight_store(struct device *dev,
-		struct device_attribute *attr, const char *buf, size_t count)
-{
-	int rc;
-	struct backlight_device *bd = to_backlight_device(dev);
-	unsigned long boost_brightness;
-
-	rc = kstrtoul(buf, 0, &boost_brightness);
-	if (rc)
-		return rc;
-
-	if(1 == boost_brightness)
-		boost_status = true;
-	else
-		boost_status = false;
-
-	rc = boost_backlight_device_set_brightness(bd, boost_brightness);
-
-	printk(KERN_ERR "%s:Hisense brightness boost=%d, boost_brightness=%d, bd.brightness=%d\n", __func__,
-	boost_status, boost_brightness, bd->props.brightness);
-
-	return rc ? rc : count;
-}
-static DEVICE_ATTR_RW(boost_backlight);
-#endif /*CONFIG_BOOST_BACKLIGHT_ENABLE*/
-//merged by changxue.fang for thething,20210430,start
-
 static ssize_t type_show(struct device *dev, struct device_attribute *attr,
 		char *buf)
 {
@@ -397,11 +328,6 @@ static void bl_device_release(struct device *dev)
 static struct attribute *bl_device_attrs[] = {
 	&dev_attr_bl_power.attr,
 	&dev_attr_brightness.attr,
-//merged by changxue.fang for thething,20210430,start
-#ifdef CONFIG_BOOST_BACKLIGHT_ENABLE
-	&dev_attr_boost_backlight.attr,
-#endif
-//merged by changxue.fang for thething,20210430,end
 	&dev_attr_actual_brightness.attr,
 	&dev_attr_max_brightness.attr,
 	&dev_attr_scale.attr,
@@ -724,12 +650,6 @@ struct backlight_device *of_find_backlight(struct device *dev)
 			of_node_put(np);
 			if (!bd)
 				return ERR_PTR(-EPROBE_DEFER);
-			/*
-			 * Note: gpio_backlight uses brightness as
-			 * power state during probe
-			 */
-			if (!bd->props.brightness)
-				bd->props.brightness = bd->props.max_brightness;
 		}
 	}
 

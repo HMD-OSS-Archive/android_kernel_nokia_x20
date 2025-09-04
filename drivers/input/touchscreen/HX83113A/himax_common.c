@@ -194,6 +194,7 @@ static int p_point_num = 0xFFFF;
 static int probe_fail_flag;
 #if defined(HX_USB_DETECT_GLOBAL)
 bool USB_detect_flag;
+extern bool USB_flag;
 #endif
 
 #if defined(HX_GESTURE_TRACK)
@@ -1702,41 +1703,8 @@ void himax_cable_detect_func(bool force_renew)
 	/*u32 connect_status = 0;*/
 	uint8_t connect_status = 0;
 
-        struct power_supply *usb_psy;
-        struct power_supply *pc_psy;
-        union power_supply_propval val = {0};
-        union power_supply_propval val_pc = {0};
-
-        usb_psy = power_supply_get_by_name("usb");
-        if (!usb_psy) {
-                I("Could not get USB power_supply\n");
-        }
-        if (usb_psy) {
-                if (!power_supply_get_property(usb_psy,POWER_SUPPLY_PROP_ONLINE, &val)) {
-                        //connect_status  =  val.intval;
-                        //I("%s: USB connect_status=: %d\n", __func__,connect_status);
-                } 
-        }
         
-        pc_psy = power_supply_get_by_name("pc_port");
-        if (!pc_psy) {
-                pr_err("Could not get PC power_supply\n");
-        }
-        if (pc_psy) {
-                if (!power_supply_get_property(pc_psy,POWER_SUPPLY_PROP_ONLINE, &val_pc)){
-                        //connect_status  =  val_pc.intval;
-                        //I("%s: PC connect_status=: %d\n", __func__,connect_status);
-                }
-        }
-	
-	if (val.intval == 0 && val_pc.intval == 0){
-		connect_status  =  0;
-		//I("%s: connect_status=: %d\n", __func__,connect_status);
-	} else {
-		connect_status  =  1;
-		//I("%s: connect_status=: %d\n", __func__,connect_status);
-	}
-	//connect_status = USB_detect_flag;/* upmu_is_chr_det(); */
+	connect_status = USB_flag;/* upmu_is_chr_det(); */
 	ts = private_ts;
 
 	/* I("Touch: cable status=%d, cable_config=%p, usb_connected=%d\n",*/
@@ -2888,6 +2856,25 @@ static void himax_fb_register(struct work_struct *work)
 }
 #endif
 
+#if defined(HX_USB_DETECT_GLOBAL)
+static void himax_usb_register(struct work_struct *work)
+{
+	int ret = 0;
+
+	struct himax_ts_data *ts = container_of(work, struct himax_ts_data,
+			work_usb.work);
+
+	I("%s in\n", __func__);
+
+	ts->usb_notif.notifier_call = usb_notifier_callback;
+	ret = power_supply_reg_notifier(&ts->usb_notif);
+	if (ret)
+		E("Unable to register ts_usb_notif: %d\n", ret);
+
+}
+#endif
+
+
 #if defined(HX_CONTAINER_SPEED_UP)
 static void himax_resume_work_func(struct work_struct *work)
 {
@@ -3215,6 +3202,11 @@ found_hx_chip:
 
 	ts->initialized = true;
 
+#if defined(CONFIG_PM) && FTS_PATCH_COMERR_PM
+    init_completion(&ts->pm_completion);
+    ts->pm_suspend = false;
+#endif
+
 #if defined(HX_CONFIG_FB) || defined(HX_CONFIG_DRM)
 	ts->himax_att_wq = create_singlethread_workqueue("HMX_ATT_request");
 	if (!ts->himax_att_wq) {
@@ -3227,15 +3219,33 @@ found_hx_chip:
 	queue_delayed_work(ts->himax_att_wq, &ts->work_att,
 			msecs_to_jiffies(0));
 #endif
+#if defined(HX_USB_DETECT_GLOBAL)
+	ts->himax_usb_wq = create_singlethread_workqueue("HMX_USB_request");
+	if (!ts->himax_usb_wq) {
+		E(" allocate himax_usb_wq failed\n");
+		err = -ENOMEM;
+		goto err_get_intr_bit_failed_usb;
+	}
+
+	INIT_DELAYED_WORK(&ts->work_usb, himax_usb_register);
+	queue_delayed_work(ts->himax_usb_wq, &ts->work_usb,
+			msecs_to_jiffies(0));
+#endif
 
 	g_hx_chip_inited = true;
 	return 0;
 
+#if defined(HX_USB_DETECT_GLOBAL)
+	cancel_delayed_work_sync(&ts->work_usb);
+	destroy_workqueue(ts->himax_usb_wq);
+err_get_intr_bit_failed_usb:
+#endif
 #if defined(HX_CONFIG_FB) || defined(HX_CONFIG_DRM)
 	cancel_delayed_work_sync(&ts->work_att);
 	destroy_workqueue(ts->himax_att_wq);
 err_get_intr_bit_failed:
 #endif
+
 #if defined(HX_CONTAINER_SPEED_UP)
 	cancel_delayed_work_sync(&ts->ts_int_work);
 	destroy_workqueue(ts->ts_int_workqueue);
@@ -3327,9 +3337,13 @@ void himax_chip_common_deinit(void)
 		drm_panel_notifier_unregister(active_panel, &ts->fb_notif);
 		E("Error occurred while unregistering drm_notifier.\n");
 	}
-
 	cancel_delayed_work_sync(&ts->work_att);
 	destroy_workqueue(ts->himax_att_wq);
+#endif
+#if defined(HX_USB_DETECT_GLOBAL)
+	power_supply_unreg_notifier(&ts->usb_notif);
+	cancel_delayed_work_sync(&ts->work_usb);
+	destroy_workqueue(ts->himax_usb_wq);
 #endif
 	input_free_device(ts->input_dev);
 #if defined(HX_CONTAINER_SPEED_UP)

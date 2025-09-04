@@ -200,6 +200,7 @@ static struct attribute_group fts_gesture_group = {
 };
 
 // Add-begin by ning.wei for common gesture device node
+#ifdef TARGET_PRODUCT_PUNISHER
 static ssize_t gesture_en_show(
     struct device *dev, struct device_attribute *attr, char *buf)
 {
@@ -227,11 +228,14 @@ static struct attribute *gesture_en_attrs[] = {
 static struct attribute_group gesture_en_group = {
     .attrs = gesture_en_attrs,
 };
+#endif
 // Add-begin by ning.wei for common gesture device node
 
 static int fts_create_gesture_sysfs(struct device *dev)
 {
     int ret = 0;
+
+    struct fts_ts_data *ts_data = fts_data;
 
     ret = sysfs_create_group(&dev->kobj, &fts_gesture_group);
     if (ret) {
@@ -240,14 +244,17 @@ static int fts_create_gesture_sysfs(struct device *dev)
         return ret;
     }
 
-    // ning.wei++
-    fts_data->tp_gesture_pdev = platform_device_register_simple("tp_gesture", -1, NULL, 0);
-    if (!IS_ERR_OR_NULL(fts_data->tp_gesture_pdev)) {
-        ret = sysfs_create_group(&fts_data->tp_gesture_pdev->dev.kobj, &gesture_en_group);
+    //Add-begin by ning.wei for common gesture device node
+    #ifdef TARGET_PRODUCT_PUNISHER
+	ts_data->tp_gesture_pdev = platform_device_register_simple("tp_gesture", -1, NULL, 0);
+    if (!IS_ERR_OR_NULL(ts_data->tp_gesture_pdev)) {
+        ret = sysfs_create_group(&ts_data->tp_gesture_pdev->dev.kobj, &gesture_en_group);
         if (ret) {
             FTS_ERROR("gesture common device node create fail");
         }
    }
+   //Add-end by ning.wei for common gesture device node
+   #endif
 
     return 0;
 }
@@ -397,7 +404,7 @@ int fts_gesture_suspend(struct fts_ts_data *ts_data)
 
     FTS_FUNC_ENTER();
     if (enable_irq_wake(ts_data->irq)) {
-        FTS_DEBUG("enable_irq_wake(irq:%d) fail", ts_data->irq);
+        FTS_ERROR("enable_irq_wake(irq:%d) fail", ts_data->irq);
     }
 
     for (i = 0; i < 5; i++) {

@@ -14,8 +14,16 @@ ccflags-y += -D__FF_BUILD_DATE=\"$(shell date +%Y%m%d)\"
 ccflags-y += -D__FF_EARLY_LOG_LEVEL=2
 
 # Source files.
-obj-y := focaltech_fp.o
-focaltech_fp-objs := ff_ctl.o
-focaltech_fp-objs += plat-msm8916.o
+$(info "zhouhe focal FP config is $(CONFIG_FOCALTECH_FINGERPRINT) ")
+obj-$(CONFIG_FOCALTECH_FINGERPRINT) += focaltech_fp.o
 
+$(info "zhouhe focal FP 1")
+focaltech_fp-objs := ff_ctl.o plat-msm8916.o focaltech_fp.o
+
+$(info "zhouhe focal FP 2")
+ifeq ($(CONFIG_FOCALTECH_FINGERPRINT),m)
+
+$(info "zhouhe focal FP 3")
+BOARD_VENDOR_KERNEL_MODULES +=  $(KERNEL_MODULES_OUT)/focaltech_fp.ko
+endif
 

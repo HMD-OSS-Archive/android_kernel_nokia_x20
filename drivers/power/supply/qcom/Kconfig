@@ -76,6 +76,14 @@ config CHARGER_IDT_P9415
 	help
 		Say Y to enable support for the IDT P9221 wireless power charger.
 
+config HS_TYPEC_OTG_CONTROL_FUNCTION
+	bool "type c OTG control"
+	depends on TYPEC
+	default n
+	help
+	 y to use type c OTG control.
+	 n not using type c OTG control.
+
 config SMB1390_CHARGE_PUMP_PSY
 	tristate "SMB1390 power supply framework based driver"
 	depends on MFD_I2C_PMIC && IIO

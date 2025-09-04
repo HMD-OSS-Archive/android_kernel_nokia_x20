@@ -423,6 +423,10 @@ assign_new_owner:
 		goto retry;
 	}
 	WRITE_ONCE(mm->owner, c);
+#ifdef CONFIG_LRU_GEN
+	// modify for google MLRU
+	lru_gen_migrate_mm(mm);
+#endif
 	task_unlock(c);
 	put_task_struct(c);
 }

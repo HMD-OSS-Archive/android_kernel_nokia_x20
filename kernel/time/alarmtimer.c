@@ -63,7 +63,7 @@ static struct rtc_device	*rtcdev;
 static DEFINE_SPINLOCK(rtcdev_lock);
 
 // ning.wei++ for alarm_debug
-static int alarm_debug = 0;
+static int alarm_debug = 1;
 
 module_param_named(alarm_debug, alarm_debug, int, 0644);
 // ning.wei++ for alarm_debug
@@ -869,9 +869,9 @@ static int alarm_timer_nsleep(const clockid_t which_clock, int flags,
 	if (flags == TIMER_ABSTIME)
 		return -ERESTARTNOHAND;
 
-	restart->fn = alarm_timer_nsleep_restart;
 	restart->nanosleep.clockid = type;
 	restart->nanosleep.expires = exp;
+	set_restart_fn(restart, alarm_timer_nsleep_restart);
 	return ret;
 }
 
