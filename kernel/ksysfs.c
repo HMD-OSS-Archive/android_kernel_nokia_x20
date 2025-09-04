@@ -20,6 +20,11 @@
 
 #include <linux/rcupdate.h>	/* rcu_expedited and rcu_normal */
 
+#ifdef TARGET_PRODUCT_PUNISHER
+#include <linux/mmc/mmc.h>
+#include <linux/mm.h>
+#endif
+
 #define KERNEL_ATTR_RO(_name) \
 static struct kobj_attribute _name##_attr = __ATTR_RO(_name)
 
@@ -209,6 +214,56 @@ KERNEL_ATTR_RW(restart_modem);
 #endif
 
 
+#ifdef TARGET_PRODUCT_PUNISHER
+int wallpaper_ID;
+static ssize_t wallpaper_ID_show(struct kobject *kobj,
+			       struct kobj_attribute *attr, char *buf)
+{
+	return sprintf(buf, "The wallpaper_ID :0x%x\n", READ_ONCE(wallpaper_ID));
+}
+static ssize_t wallpaper_ID_store(struct kobject *kobj,
+				struct kobj_attribute *attr,
+				const char *buf, size_t count)
+{
+	if (kstrtoint(buf, 0, &wallpaper_ID))
+		return -EINVAL;
+
+	return count;
+}
+KERNEL_ATTR_RW(wallpaper_ID);
+
+static ssize_t info_ram_show(struct kobject *kobj,
+			       struct kobj_attribute *attr, char *buf)
+{
+	char ramsize[8] = "";
+	struct sysinfo si;
+    si_meminfo(&si);
+    if(si.totalram > 1572864 )				   // 6G = 1572864 	(256 *1024)*6
+   		strcpy(ramsize , "8G");
+    else if(si.totalram > 1048576)			  // 4G = 786432 	(256 *1024)*4
+    		strcpy(ramsize , "6G");
+    else if(si.totalram > 786432)			 // 3G = 786432 	(256 *1024)*3
+    		strcpy(ramsize , "4G");
+    else if(si.totalram > 524288)			// 2G = 524288 	(256 *1024)*2
+    		strcpy(ramsize , "3G");
+    else if(si.totalram > 262144)               // 1G = 262144		(256 *1024)     4K page size
+    		strcpy(ramsize , "2G");
+    else if(si.totalram > 131072)               // 512M = 131072		(256 *1024/2)   4K page size
+    		strcpy(ramsize , "1G");
+    else
+    		strcpy(ramsize , "512M");
+
+	return sprintf(buf, "%s\n", ramsize);
+}
+static ssize_t info_ram_store(struct kobject *kobj,
+				struct kobj_attribute *attr,
+				const char *buf, size_t count)
+{
+	return count;
+}
+KERNEL_ATTR_RW(info_ram);
+#endif
+
 /*
  * Make /sys/kernel/notes give the raw contents of our kernel .notes section.
  */
@@ -259,6 +314,10 @@ static struct attribute * kernel_attrs[] = {
 #ifndef CONFIG_TINY_RCU
 	&rcu_expedited_attr.attr,
 	&rcu_normal_attr.attr,
+#endif
+#ifdef TARGET_PRODUCT_PUNISHER
+	&wallpaper_ID_attr.attr,
+	&info_ram_attr.attr,
 #endif
 	NULL
 };

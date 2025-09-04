@@ -276,9 +276,7 @@ static int pstore_compress(const void *in, void *out,
 	int ret;
 
 	if (!IS_ENABLED(CONFIG_PSTORE_COMPRESSION))
-	{
 		return -EINVAL;
-	}
 
 	ret = crypto_comp_compress(tfm, in, inlen, out, &outlen);
 	if (ret) {

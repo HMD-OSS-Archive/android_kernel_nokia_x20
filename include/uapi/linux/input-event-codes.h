@@ -697,6 +697,14 @@
 #define KEY_MAX			0x2ff
 #define KEY_CNT			(KEY_MAX+1)
 
+/*church.zhong add for punisher project 2021-03-12.*/
+#ifdef TARGET_PRODUCT_PUNISHER
+
+#define KEY_SAR_NEAR   0x2ec
+#define KEY_SAR_CLOSE  0x2ed
+#define KEY_SAR_FAR    0x2ef
+#endif
+
 /*
  * Relative axes
  */

@@ -127,3 +127,9 @@ obj-$(CONFIG_SPI_QUP)			+= spi_qsd.o
 # SPI slave protocol handlers
 obj-$(CONFIG_SPI_SLAVE_TIME)		+= spi-slave-time.o
 obj-$(CONFIG_SPI_SLAVE_SYSTEM_CONTROL)	+= spi-slave-system-control.o
+
+
+ifeq ($(BUILD_PUNISHER_PROJECT),true)
+ subdir-ccflags-y += -DTARGET_PRODUCT_PUNISHER
+endif
+

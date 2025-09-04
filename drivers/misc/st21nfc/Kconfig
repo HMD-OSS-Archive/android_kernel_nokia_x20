@@ -1,0 +1,11 @@
+# SPDX-License-Identifier: GPL-2.0-only
+
+config NFC_ST21NFC
+	tristate "STMicroelectronics ST21NFC NFC driver (I2C)"
+	default n
+	---help---
+	  This module adds support for the STMicroelectronics st21nfc i2c interface.
+	  Select this if your platform is using the i2c bus.
+
+	  If you choose to build a module, it'll be called st21nfc_i2c.
+	  Say N if unsure.

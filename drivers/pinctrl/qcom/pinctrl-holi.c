@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
- * Copyright (c) 2020, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2020-2021, The Linux Foundation. All rights reserved.
  */
 
 #include <linux/module.h>
@@ -578,7 +578,11 @@ enum holi_functions {
 	msm_mux_qup01,
 	msm_mux_qup02,
 	msm_mux_qup10,
+//reverted by changxue.fang for i2c(qks smarpa),20210415,start
 	msm_mux_qup11,
+	//msm_mux_qup11_f1,
+	//msm_mux_qup11_f2,
+//reverted by changxue.fang for i2c(qks smarpa),20210415,end
 	msm_mux_qup12,
 	msm_mux_qup13_f1,
 	msm_mux_qup13_f2,
@@ -1026,9 +1030,17 @@ static const char * const qup02_groups[] = {
 static const char * const qup10_groups[] = {
 	"gpio13", "gpio14", "gpio15", "gpio16", "gpio17",
 };
+//reverted by changxue.fang for i2c(qks smarpa),20210415,start
 static const char * const qup11_groups[] = {
 	"gpio27", "gpio28",
 };
+//static const char * const qup11_f1_groups[] = {
+//	"gpio27", "gpio28",
+//};
+//static const char * const qup11_f2_groups[] = {
+//	"gpio27", "gpio28",
+//};
+//reverted by changxue.fang for i2c(qks smarpa),20210415,end
 static const char * const qup12_groups[] = {
 	"gpio19", "gpio20",
 };
@@ -1144,7 +1156,11 @@ static const struct msm_function holi_functions[] = {
 	FUNCTION(edp_lcd),
 	FUNCTION(qup13_f1),
 	FUNCTION(qup13_f2),
+//reverted by changxue.fang for i2c(qks smarpa),20210415,start
 	FUNCTION(qup11),
+	//FUNCTION(qup11_f1),
+	//FUNCTION(qup11_f2),
+//reverted by changxue.fang for i2c(qks smarpa),20210415,end
 	FUNCTION(PLL_BIST),
 	FUNCTION(qdss_gpio14),
 	FUNCTION(qdss_gpio15),
@@ -1330,10 +1346,16 @@ static const struct msm_pingroup holi_groups[] = {
 			0x9C00C, 15),
 	[26] = PINGROUP(26, qup13_f1, qup13_f2, NA, NA, NA, NA, NA, NA, NA,
 			0, -1),
+//reverted by changxue.fang for i2c(qks smarpa),20210415,start
 	[27] = PINGROUP(27, qup11, qup11, MDP_VSYNC, PLL_BIST, NA, qdss_gpio14,
 			NA, NA, NA, 0x9C010, 0),
 	[28] = PINGROUP(28, qup11, qup11, MDP_VSYNC, NA, qdss_gpio15, NA, NA,
 			NA, NA, 0x9C010, 1),
+	//[27] = PINGROUP(27, qup11_f1, qup11_f2, MDP_VSYNC, PLL_BIST, NA,
+	//		qdss_gpio14, NA, NA, NA, 0x9C010, 0),
+	//[28] = PINGROUP(28, qup11_f1, qup11_f2, MDP_VSYNC, NA, qdss_gpio15,
+	//		NA, NA,	NA, NA, 0x9C010, 1),
+//reverted by changxue.fang for i2c(qks smarpa),20210415,end
 	[29] = PINGROUP(29, cam_mclk, NA, NA, NA, NA, NA, NA, NA, NA, 0, -1),
 	[30] = PINGROUP(30, cam_mclk, NA, NA, NA, NA, NA, NA, NA, NA, 0, -1),
 	[31] = PINGROUP(31, cam_mclk, NA, NA, NA, NA, NA, NA, NA, NA, 0, -1),
@@ -1532,9 +1554,15 @@ static const struct msm_pingroup holi_groups[] = {
 	[163] = SDC_QDSD_PINGROUP(sdc2_data, 0x1a2000, 9, 0),
 };
 
+// Mod-begin by ning.wei
+// gpio 13 14 15 16  used by fingerprint, keep reserved in AP side
+// gpio 45 46 56 57  this spi pin group should not be in reserved:
+// QKS , SCW , TTG for nfc
+// PHR for TP
 static const int holi_reserved_gpios[] = {
 	13, 14, 15, 16, -1
 };
+// Mod-end by ning.wei
 
 static const struct msm_gpio_wakeirq_map holi_mpm_map[] = {
 	{0, 84},

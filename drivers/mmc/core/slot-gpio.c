@@ -16,6 +16,20 @@
 
 #include "slot-gpio.h"
 
+//merged by changxue.fang for thething sdcard detect,20210317,start
+#if IS_ENABLED(CONFIG_TTG_BOOT_INFO) || IS_ENABLED(CONFIG_SDCARD_REPORT)
+int sdcard_status_global = 0;
+EXPORT_SYMBOL(sdcard_status_global);
+#endif /* CONFIG_TTG_BOOT_INFO */
+/*sdcard_status_global's value is as follows:
+0: sdcard slot is not present
+1: sdcard slot is present
+                   add end */
+#if IS_ENABLED(CONFIG_SDCARD_REPORT)
+extern void sdcard_input(void);
+extern void sdcard_output(void);
+#endif /* CONFIG_SDCARD_REPORT */
+
 struct mmc_gpio {
 	struct gpio_desc *ro_gpio;
 	struct gpio_desc *cd_gpio;
@@ -36,7 +50,20 @@ static irqreturn_t mmc_gpio_cd_irqt(int irq, void *dev_id)
 	/* New card is not corrupted */
 	host->corrupted_card = false;
 #endif
-
+//merged by changxue.fang for thething sdcard detect,20210317,start
+/*add start: add device node for getting status of TFCard holder in factory mode */
+#if IS_ENABLED(CONFIG_TTG_BOOT_INFO) || IS_ENABLED(CONFIG_SDCARD_REPORT)
+	sdcard_status_global = mmc_gpio_get_cd(host);
+	printk(KERN_ERR "sdcard status:%d \n", sdcard_status_global);
+#endif
+#if IS_ENABLED(CONFIG_SDCARD_REPORT)
+	if(1 == sdcard_status_global)
+		sdcard_input();
+	else
+		sdcard_output();
+#endif /*CONFIG_TTG_BOOT_INFO */
+/*add end */
+//merged by changxue.fang for thething sdcard detect,20210317,end
 	host->trigger_card_event = true;
 	mmc_detect_change(host, msecs_to_jiffies(ctx->cd_debounce_delay_ms));
 
@@ -129,6 +156,20 @@ void mmc_gpiod_request_cd_irq(struct mmc_host *host)
 
 	if (irq < 0)
 		host->caps |= MMC_CAP_NEEDS_POLL;
+	/*add start: add device node for getting status of TFCard holder in factory mode */
+//merged by changxue.fang for thething sdcard detect,20210317,start
+#if IS_ENABLED(CONFIG_TTG_BOOT_INFO) || IS_ENABLED(CONFIG_SDCARD_REPORT)
+	sdcard_status_global = mmc_gpio_get_cd(host);
+    printk("%s : sdcard_status_global =%d \n",__func__,sdcard_status_global);
+#endif
+#if IS_ENABLED(CONFIG_SDCARD_REPORT)
+	if (1 == sdcard_status_global)
+		sdcard_input();
+	else
+		sdcard_output();
+#endif
+/*add end*/
+//merged by changxue.fang for thething sdcard detect,20210317,end
 }
 EXPORT_SYMBOL(mmc_gpiod_request_cd_irq);
 

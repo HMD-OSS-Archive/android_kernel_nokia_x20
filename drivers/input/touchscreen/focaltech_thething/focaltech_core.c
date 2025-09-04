@@ -1729,6 +1729,9 @@ int ft_need_lcd_power_reset_keep_flag_get(void)
 {
 	struct fts_ts_data *ts_data = fts_data;
 
+	if ((fts_data == NULL) || (!fts_probed))
+		return -ENODEV;
+
 	if(ts_data->spi == NULL)
 		return -ENODEV;
 
@@ -2484,7 +2487,7 @@ static int fts_ts_suspend(struct device *dev)
 		}
 	}
 #endif
-	fts_irq_disable();
+	//fts_irq_disable();
 		FTS_INFO("make TP enter into sleep mode");
 		ret =
 		    fts_write_reg(FTS_REG_POWER_MODE, FTS_REG_POWER_MODE_SLEEP);
@@ -2556,7 +2559,7 @@ int fts_ts_resume(struct device *dev)
 	}
 #endif/*CONFIG_TOUCHSCREEN_FT_SPI_GLOVE*/
 
-	fts_irq_enable();
+	//fts_irq_enable();
 	ts_data->suspended = false;
 #if defined(CONFIG_TOUCHSCREEN_FT_SPI_FH)
 	if (usb_flag_focal)
@@ -2582,6 +2585,7 @@ static void fts_probe_delay_work(struct work_struct *work)
 		return;
 	}
 	fts_probed = true;
+	factory_ts_func_test_register(fts_data);
 }
 
 #if defined(CONFIG_PM) // && FTS_PATCH_COMERR_PM
@@ -2593,7 +2597,6 @@ static int fts_pm_suspend(struct device *dev)
         FTS_ERROR("ts_data is null");
         return 0;
     }
-	return 0;
 
 #if defined(FTS_PATCH_COMERR_PM)
     FTS_INFO("system enters into pm_suspend");
@@ -2604,9 +2607,9 @@ static int fts_pm_suspend(struct device *dev)
 	if (fts_probed) {
 		if (ts_data->gesture_suspend_en) {
 			FTS_INFO("fts_ts_suspend_gesture\n");
-			fts_irq_disable();
+			//fts_irq_disable();
 			/* make tp can wake the system */
-			enable_irq_wake(ts_data->irq);
+			//enable_irq_wake(ts_data->irq);
 		}
 	}
 #endif
@@ -2621,7 +2624,6 @@ static int fts_pm_resume(struct device *dev)
         FTS_ERROR("ts_data is null");
         return 0;
     }
-	return 0;
 
 #if defined(FTS_PATCH_COMERR_PM)
     FTS_INFO("system resumes from pm_suspend");
@@ -2633,8 +2635,8 @@ static int fts_pm_resume(struct device *dev)
 		if (ts_data->gesture_suspend_en) {
 			FTS_INFO("fts_ts_resume_gesture\n");
 			/* make tp cannot wake the system */
-			disable_irq_wake(ts_data->irq);
-			fts_irq_enable();
+			//disable_irq_wake(ts_data->irq);
+			//fts_irq_enable();
 		}
 	}
 #endif
@@ -2686,7 +2688,6 @@ static int fts_ts_probe(struct spi_device *spi)
         return ret;
     }*/
 
-	factory_ts_func_test_register(ts_data);
 #ifdef CONFIG_TOUCHSCREEN_FT_SPI_GESTURE
 	ts_data->gesture_en = false;
 #endif

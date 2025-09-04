@@ -87,4 +87,5 @@ obj-$(CONFIG_INPUT_WM831X_ON)		+= wm831x-on.o
 obj-$(CONFIG_INPUT_XEN_KBDDEV_FRONTEND)	+= xen-kbdfront.o
 obj-$(CONFIG_INPUT_YEALINK)		+= yealink.o
 obj-$(CONFIG_INPUT_IDEAPAD_SLIDEBAR)	+= ideapad_slidebar.o
-
+# church.zhong add for punisher project 2021-03-12.
+obj-$(CONFIG_SAR_SENSOR)	+= abov_sar.o #add yukai for sar sensor

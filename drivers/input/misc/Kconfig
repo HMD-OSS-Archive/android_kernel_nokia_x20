@@ -914,4 +914,11 @@ config INPUT_STPMIC1_ONKEY
 	  To compile this driver as a module, choose M here: the
 	  module will be called stpmic1_onkey.
 
+config SAR_SENSOR 
+	tristate "sar sensor support"
+	help
+	  Say Y to enable sar sensor 
+	  To compile this driver as a module, choose M here: the
+	  module will be called stpmic1_onkey.
+
 endif

@@ -60,6 +60,3 @@ obj-$(CONFIG_UNIPHIER_THERMAL)	+= uniphier_thermal.o
 obj-$(CONFIG_THERMAL_TSENS)     += msm-tsens-driver.o
 msm-tsens-driver-objs     := msm-tsens.o tsens2xxx.o tsens-dbg.o tsens-mtc.o tsens1xxx.o tsens-calib.o
 obj-$(CONFIG_SPRD_THERMAL)	+= sprd_thermal.o
-ifeq ($(BUILD_DUAL_85),true)
-subdir-ccflags-y += -DDUAL_85_VERSION
-endif

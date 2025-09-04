@@ -68,6 +68,11 @@ struct backlight_ops {
 	/* Check if given framebuffer device is the one bound to this backlight;
 	   return 0 if not, !=0 if it is. If NULL, backlight always matches the fb. */
 	int (*check_fb)(struct backlight_device *, struct fb_info *);
+//merged by changxue.fang for thething,20210430,start
+#ifdef CONFIG_BOOST_BACKLIGHT_ENABLE
+	int (*boost_update_status)(struct backlight_device *);
+#endif
+//merged by changxue.fang for thething,20210430,end
 };
 
 /* This structure defines all the properties of a backlight */
@@ -88,6 +93,12 @@ struct backlight_properties {
 	unsigned int state;
 	/* Type of the brightness scale (linear, non-linear, ...) */
 	enum backlight_scale scale;
+
+//merged by changxue.fang for thething,20210430,start
+#ifdef CONFIG_BOOST_BACKLIGHT_ENABLE
+	bool boost_bl_status;
+#endif
+//merged by changxue.fang for thething,20210430,end
 
 #define BL_CORE_SUSPENDED	(1 << 0)	/* backlight is suspended */
 #define BL_CORE_FBBLANK		(1 << 1)	/* backlight is under an fb blank event */
@@ -132,6 +143,22 @@ static inline int backlight_update_status(struct backlight_device *bd)
 
 	return ret;
 }
+
+//merged by changxue.fang for thething,20210430,start
+#ifdef CONFIG_BOOST_BACKLIGHT_ENABLE
+static inline int boost_backlight_update_status(struct backlight_device *bd)
+{
+	int ret = -ENOENT;
+
+	mutex_lock(&bd->update_lock);
+	if (bd->ops && bd->ops->boost_update_status)
+		ret = bd->ops->boost_update_status(bd);
+	mutex_unlock(&bd->update_lock);
+
+	return ret;
+}
+#endif
+//merged by changxue.fang for thething,20210430,end
 
 /**
  * backlight_enable - Enable backlight

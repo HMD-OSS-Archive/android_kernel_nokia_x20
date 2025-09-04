@@ -15,7 +15,3 @@ usbcore-$(CONFIG_ACPI)		+= usb-acpi.o
 obj-$(CONFIG_USB)		+= usbcore.o
 
 obj-$(CONFIG_USB_LEDS_TRIGGER_USBPORT)	+= ledtrig-usbport.o
-
-ifeq ($(BUILD_SMT),true)
-subdir-ccflags-y += -DDEBUG
-endif

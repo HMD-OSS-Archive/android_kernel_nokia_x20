@@ -1,0 +1,6 @@
+
+config HS_PM_DEBUG
+	tristate "HS pm debug"
+	help
+	  print clk, gpio, vreg status when the device enter suspend mode.
+

@@ -21,13 +21,6 @@ config HS_CHARGE_FG_FUNCTION
 	help
 		Add the hisense charge function.Such as smb-charger,fg and so on.
 
-config CHARGER_IDT_P9415
-	tristate "IDT P9415 wireless power charger driver"
-	depends on I2C
-	default n
-	help
-		Say Y to enable support for the IDT P9221 wireless power charger.
-
 config POWER_SUPPLY_HWMON
 	bool
 	prompt "Expose power supply sensors as hwmon device"
@@ -420,7 +413,7 @@ config BATTERY_TWL4030_MADC
 
 config QTI_BATTERY_CHARGER
 	tristate "QTI Glink battery charger"
-	depends on QTI_PMIC_GLINK
+	depends on QTI_PMIC_GLINK && EXTCON
 	help
 	  Say Y here to enable Qualcomm Technologies, Inc. battery charger
 	  driver which interfaces with the charger firmware running on the

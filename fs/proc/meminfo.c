@@ -25,6 +25,12 @@
 #include <linux/seq_buf.h>
 #endif
 
+//merged by changxue.fang for thething meminfo,20210408,start
+#ifdef CONFIG_TTG_BOOT_INFO
+#include <linux/his_debug_base.h>
+#endif /* CONFIG_TTG_BOOT_INFO */
+//merged by changxue.fang for thething meminfo,20210408,end
+
 void __attribute__((weak)) arch_report_meminfo(struct seq_file *m)
 {
 }
@@ -86,7 +92,13 @@ static int meminfo_proc_show(struct seq_file *m, void *v)
 	sreclaimable = global_node_page_state(NR_SLAB_RECLAIMABLE);
 	sunreclaim = global_node_page_state(NR_SLAB_UNRECLAIMABLE);
 
+//merged by changxue.fang for thething meminfo,20210408,start
+#ifdef CONFIG_TTG_BOOT_INFO
+	show_val_kb(m, "MemTotal:       ", get_hs_total_ram()/PAGE_SIZE);
+#else  /* CONFIG_TTG_BOOT_INFO */
 	show_val_kb(m, "MemTotal:       ", i.totalram);
+#endif /* CONFIG_TTG_BOOT_INFO */
+//merged by changxue.fang for thething meminfo,20210408,end
 	show_val_kb(m, "MemFree:        ", i.freeram);
 	show_val_kb(m, "MemAvailable:   ", available);
 	show_val_kb(m, "Buffers:        ", i.bufferram);

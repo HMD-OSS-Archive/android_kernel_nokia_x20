@@ -28,6 +28,11 @@
 
 #include <asm/setup.h>  /* for COMMAND_LINE_SIZE */
 #include <asm/page.h>
+//merged by changxue.fang for thething meminfo,20210408,start
+#ifdef CONFIG_TTG_BOOT_INFO
+#include <linux/his_debug_base.h>
+#endif /* CONFIG_TTG_BOOT_INFO */
+//merged by changxue.fang for thething meminfo,20210408,end
 
 #include "of_private.h"
 
@@ -1027,6 +1032,11 @@ int __init early_init_dt_scan_memory(unsigned long node, const char *uname,
 		pr_debug(" - %llx ,  %llx\n", (unsigned long long)base,
 		    (unsigned long long)size);
 
+//merged by changxue.fang for thething meminfo,20210408,start
+#ifdef CONFIG_TTG_BOOT_INFO
+		dev_bi.ddr_size += size;
+#endif /* CONFIG_TTG_BOOT_INFO */
+//merged by changxue.fang for thething meminfo,20210408,end
 		early_init_dt_add_memory_arch(base, size);
 
 		if (!hotpluggable)

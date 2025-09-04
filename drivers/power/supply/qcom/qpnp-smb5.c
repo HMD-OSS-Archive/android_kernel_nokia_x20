@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
- * Copyright (c) 2018-2020 The Linux Foundation. All rights reserved.
+ * Copyright (c) 2018-2021 The Linux Foundation. All rights reserved.
  */
 #if defined(SMT_VERSION) || defined(DEBUG_CHARGER)
 #ifndef DEBUG
@@ -139,7 +139,11 @@ static struct smb_params smb5_pm8150b_params = {
 		.name   = "usb input current limit",
 		.reg    = USBIN_CURRENT_LIMIT_CFG_REG,
 		.min_u  = 0,
+		#if defined(TARGET_PRODUCT_PUNISHER)
+		.max_u  = 3000000,
+		#else
 		.max_u  = 5000000,
+		#endif
 		.step_u = 50000,
 	},
 	.icl_max_stat		= {
@@ -242,7 +246,8 @@ struct smb5 {
 	struct iio_chan_spec	*iio_chan_ids;
 };
 
-static int __debug_mask = 0;
+static int __debug_mask =
+	PR_PARALLEL | PR_INTERRUPT | PR_OTG | PR_MISC | PR_REGISTER;
 
 static ssize_t pd_disabled_show(struct device *dev, struct device_attribute
 				*attr, char *buf)
@@ -457,6 +462,9 @@ static int smb5_parse_dt_misc(struct smb5 *chip, struct device_node *node)
 
 	chg->sw_jeita_enabled = of_property_read_bool(node,
 				"qcom,sw-jeita-enable");
+
+	chg->jeita_arb_enable = of_property_read_bool(node,
+				"qcom,jeita-arb-enable");
 
 	chg->pd_not_supported = chg->pd_not_supported ||
 			of_property_read_bool(node, "qcom,usb-pd-disable");
@@ -957,6 +965,9 @@ static int smb5_usb_set_prop(struct power_supply *psy,
 	case POWER_SUPPLY_PROP_INPUT_CURRENT_LIMIT:
 		rc = smblib_set_prop_sdp_current_max(chg, val->intval);
 		break;
+	case POWER_SUPPLY_PROP_POWER_NOW:
+			chg->qc3p5_detected_mw = val->intval;
+		break;
 	default:
 		pr_err("Set prop %d is not supported in usb psy\n",
 				psp);
@@ -972,6 +983,7 @@ static int smb5_usb_prop_is_writeable(struct power_supply *psy,
 {
 	switch (psp) {
 	case POWER_SUPPLY_PROP_INPUT_CURRENT_LIMIT:
+	case POWER_SUPPLY_PROP_POWER_NOW:
 		return 1;
 	default:
 		break;
@@ -2418,7 +2430,7 @@ static int smb5_determine_initial_status(struct smb5 *chip)
 	chg->early_usb_attach = val.intval;
 
 	if (chg->iio_chan_list_qg)
-		smblib_suspend_on_debug_battery(chg);
+		smblib_config_charger_on_debug_battery(chg);
 
 	smb5_usb_plugin_irq_handler(0, &irq_data);
 	smb5_dc_plugin_irq_handler(0, &irq_data);
@@ -3139,7 +3151,7 @@ static int smb5_probe(struct platform_device *pdev)
 	chg->iio_chans = chip->iio_chans;
 	chg->iio_chan_list_qg = NULL;
 	chg->dev = &pdev->dev;
-	//__debug_mask |= 0x1;
+	__debug_mask |= 0x1;
 	chg->debug_mask = &__debug_mask;
 	chg->pd_disabled = 0;
 	chg->weak_chg_icl_ua = 500000;

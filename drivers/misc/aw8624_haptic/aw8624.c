@@ -170,7 +170,7 @@ static void aw8624_interrupt_clear(struct aw8624 *aw8624)
 	unsigned char reg_val = 0;
 
 	aw8624_i2c_read(aw8624, AW8624_REG_SYSINT, &reg_val);
-	pr_debug("%s: reg SYSINT=0x%x\n", __func__, reg_val);
+	pr_info("%s: reg SYSINT=0x%x\n", __func__, reg_val);
 }
 
 static void aw8624_init_extra(struct aw8624 *aw8624)
@@ -536,7 +536,7 @@ static int aw8624_haptic_stop_delay(struct aw8624 *aw8624)
 			return 0;
 		mdelay(2);
 
-		pr_debug("%s wait for standby, reg glb_state=0x%02x\n",
+		pr_info("%s wait for standby, reg glb_state=0x%02x\n",
 		__func__, reg_val);
 	}
 	pr_err("%s do not enter standby automatically\n", __func__);
@@ -1069,12 +1069,12 @@ static void aw8624_haptic_upload_lra(struct aw8624 *aw8624, unsigned int flag)
 {
 	switch (flag) {
 		case AW8624_HAPTIC_F0_CALI_LRA:
-			pr_debug("%s f0_cali_lra=%d\n", __func__, aw8624->f0_calib_data);
+			pr_info("%s f0_cali_lra=%d\n", __func__, aw8624->f0_calib_data);
 			aw8624_i2c_write(aw8624, AW8624_REG_TRIM_LRA,
 				(char)aw8624->f0_calib_data);
 			break;
 		case AW8624_HAPTIC_RTP_CALI_LRA:
-			pr_debug("%s rtp_cali_lra=%d\n", __func__, aw8624->lra_calib_data);
+			pr_info("%s rtp_cali_lra=%d\n", __func__, aw8624->lra_calib_data);
 			aw8624_i2c_write(aw8624, AW8624_REG_TRIM_LRA,
 				(char)aw8624->lra_calib_data);
 			break;
@@ -1090,7 +1090,7 @@ static void aw8624_rtp_work_routine(struct work_struct *work)
 	struct aw8624 *aw8624 = container_of(work, struct aw8624, rtp_work);
 
 	/* fw loaded */
-	pr_debug("%s enter\n", __func__);
+	pr_info("%s enter\n", __func__);
 	mutex_lock(&aw8624->rtp_lock);
 	ret = request_firmware(&rtp_file,
 	aw8624_rtp_name[aw8624->rtp_file_num], aw8624->dev);
@@ -3486,7 +3486,7 @@ static void aw8624_vibrator_work_routine(struct work_struct *work)
 	struct aw8624 *aw8624 =
 	container_of(work, struct aw8624, vibrator_work);
 
-	pr_debug("%s enter\n", __func__);
+	pr_info("%s enter\n", __func__);
 
 	mutex_lock(&aw8624->lock);
 

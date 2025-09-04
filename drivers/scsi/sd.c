@@ -123,7 +123,7 @@ static int sd_eh_action(struct scsi_cmnd *, int);
 static void sd_read_capacity(struct scsi_disk *sdkp, unsigned char *buffer);
 static void scsi_disk_release(struct device *cdev);
 
-static DEFINE_IDA(sd_index_ida);
+//static DEFINE_IDA(sd_index_ida); //HMD Ling.yi [TTG-1698] fix disk index
 
 /* This semaphore is used to mediate the 0->1 reference get in the
  * face of object destruction (i.e. we can't allow a get on an
@@ -3299,6 +3299,10 @@ static int sd_probe(struct device *dev)
 	struct gendisk *gd;
 	int index;
 	int error;
+// HMD Ling.yi [TTG-1698] fix disk index start
+    char devname_t[10] = { 0 };
+    static int indexbk = 8;
+// HMD Ling.yi [TTG-1698] fix disk index end
 
 	scsi_autopm_get_device(sdp);
 	error = -ENODEV;
@@ -3323,8 +3327,21 @@ static int sd_probe(struct device *dev)
 	gd = alloc_disk(SD_MINORS);
 	if (!gd)
 		goto out_free;
+// HMD Ling.yi [TTG-1698] fix disk index start
+    //index = ida_alloc(&sd_index_ida, GFP_KERNEL);
+    // copy 0:0:0:X
+    strncpy(devname_t, dev_name(dev), 7);
+    if(!strncmp(devname_t,"0:0:0:",6)){
+        index = devname_t[6]-'0';
+        sdev_printk(KERN_WARNING, sdp, "YYY____ index %d------devname(%s).\n",index,dev_name(dev));
+    }
+    else{
 
-	index = ida_alloc(&sd_index_ida, GFP_KERNEL);
+        index = indexbk;
+        indexbk ++ ;
+        sdev_printk(KERN_WARNING, sdp, "YYY____ using bk index %d------devname(%s).\n",index,dev_name(dev));
+    }
+// HMD Ling.yi [TTG-1698] fix disk index end
 	if (index < 0) {
 		sdev_printk(KERN_WARNING, sdp, "sd_probe: memory exhausted.\n");
 		goto out_put;
@@ -3415,7 +3432,7 @@ static int sd_probe(struct device *dev)
 	return 0;
 
  out_free_index:
-	ida_free(&sd_index_ida, index);
+	//ida_free(&sd_index_ida, index);//HMD Ling.yi [TTG-1698] fix disk index
  out_put:
 	put_disk(gd);
  out_free:
@@ -3478,7 +3495,7 @@ static void scsi_disk_release(struct device *dev)
 	struct gendisk *disk = sdkp->disk;
 	struct request_queue *q = disk->queue;
 
-	ida_free(&sd_index_ida, sdkp->index);
+	//ida_free(&sd_index_ida, sdkp->index); //HMD Ling.yi [TTG-1698] fix disk index
 
 	/*
 	 * Wait until all requests that are in progress have completed.

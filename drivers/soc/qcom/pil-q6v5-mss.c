@@ -260,7 +260,7 @@ static int modem_ramdump(int enable, const struct subsys_desc *subsys)
 
 static irqreturn_t modem_wdog_bite_intr_handler(int irq, void *dev_data)
 {
-	struct modem_data *drv = subsys_to_drv(dev_data);
+	struct modem_data *drv = dev_data;
 
 	if (drv->ignore_errors)
 		return IRQ_HANDLED;
@@ -497,6 +497,10 @@ static int pil_subsys_init(struct modem_data *drv,
 	drv->subsys_desc.powerup = modem_powerup;
 	drv->subsys_desc.ramdump = modem_ramdump;
 	drv->subsys_desc.crash_shutdown = modem_crash_shutdown;
+	ret = pil_parse_irqs(pdev);
+	if (ret)
+		return ret;
+
 
 	if (IS_ERR_OR_NULL(drv->q6)) {
 		ret = PTR_ERR(drv->q6);
@@ -528,7 +532,7 @@ static int pil_subsys_init(struct modem_data *drv,
 		goto err_subsys;
 	}
 
-	ret = pil_parse_irqs(pdev);
+	ret = pil_setup_irqs(pdev);
 	if (ret) {
 		subsys_unregister(drv->subsys);
 		goto err_subsys;

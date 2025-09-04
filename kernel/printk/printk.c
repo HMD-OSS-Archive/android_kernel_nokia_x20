@@ -113,12 +113,14 @@ void get_uart_status_from_xbl()
        pr_err("Fail to get any value of SMEM_ID_VENDOR0 sharememory\n");
        return;
     }
-    pr_err("get value of SMEM_ID_VENDOR0  %d\n", *result);
-    if (*result & 0x1) {
+    //pr_err("get value of SMEM_ID_VENDOR0  %d\n", *result);
+    if (*result & 0xA4) {
         hmd_enable_printk_uart = 2;
+        pr_warn("%s:set hmd_enable_printk_uart ", __func__);
     }
-    if (*result & 0x2) {
+    if (*result & 0xA400) {
         hmd_disable_printk_ratelimit = 1;
+        pr_warn("%s:set hmd_disable_printk_ratelimit ", __func__);
     }
 
     return;
@@ -2497,6 +2499,9 @@ static int __init console_setup(char *str)
 	char buf[sizeof(console_cmdline[0].name) + 4]; /* 4 for "ttyS" */
 	char *s, *options, *brl_options = NULL;
 	int idx;
+
+	if (str[0] == 0)
+		return 1;
 
 	if (_braille_console_setup(&str, &brl_options))
 		return 1;

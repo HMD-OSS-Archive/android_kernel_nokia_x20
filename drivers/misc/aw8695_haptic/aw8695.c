@@ -31,6 +31,7 @@
 #include "aw8695_config.h"
 #include "aw8695_reg.h"
 #include "aw8695.h"
+#include "aw8695_cali.h"
 #include <linux/timekeeping32.h>
 
 /******************************************************
@@ -54,6 +55,9 @@
 
 #define AW8695_MAX_FIRMWARE_LOAD_CNT 20
 struct pm_qos_request pm_qos_req_vb;
+
+#define CALIBRATION_F0_MAX 2450		//default 2350 +/- 100
+#define CALIBRATION_F0_MIN 2250
 /******************************************************
  *
  * variable
@@ -1133,6 +1137,8 @@ static int aw8695_haptic_read_f0(struct aw8695 *aw8695)
 	f0_reg = (reg_val << 8);
 	ret = aw8695_i2c_read(aw8695, AW8695_REG_F_LRA_F0_L, &reg_val);
 	f0_reg |= (reg_val << 0);
+	f0_tmp = 1000000000 / (f0_reg * aw8695->info.f0_coeff);
+	aw8695->f0_show =(unsigned int)f0_tmp;
 	if (!f0_reg) {
 		pr_info("%s not get f0 because f0_reg value is 0!\n", __func__);
 		return 0;
@@ -1376,6 +1382,7 @@ static int aw8695_rtp_trim_lra_calibration(struct aw8695 *aw8695)
 	lra_rtim_code = real_code > 31 ? (real_code - 32) : (real_code + 32);
 	pr_info("%s lra_rtim_code = %d\n", __func__, lra_rtim_code);
 	if (lra_rtim_code > 0) {
+		aw8695->lra_calib_data = lra_rtim_code;
 		aw8695_i2c_write(aw8695, AW8695_REG_TRIM_LRA,
 				 (char)lra_rtim_code);
 	}
@@ -1388,6 +1395,24 @@ static unsigned char aw8695_haptic_osc_read_int(struct aw8695 *aw8695)
 
 	aw8695_i2c_read(aw8695, AW8695_REG_DBGSTAT, &reg_val);
 	return reg_val;
+}
+
+static void aw8695_haptic_upload_lra(struct aw8695 *aw8695, unsigned int flag)
+{
+	switch (flag) {
+	case 1:
+		printk("%s f0_cali_lra=%d\n", __func__, aw8695->f0_calib_data);
+		aw8695_i2c_write(aw8695, AW8695_REG_TRIM_LRA,
+				 (char)aw8695->f0_calib_data);
+		break;
+	case 2:
+		printk("%s rtp_cali_lra=%d\n", __func__, aw8695->lra_calib_data);
+		aw8695_i2c_write(aw8695, AW8695_REG_TRIM_LRA,
+				 (char)aw8695->lra_calib_data);
+		break;
+	default:
+		break;
+	}
 }
 
 static int aw8695_rtp_osc_calibration(struct aw8695 *aw8695)
@@ -2045,7 +2070,11 @@ static int aw8695_haptic_f0_calibration(struct aw8695 *aw8695)
 		else
 			f0_cali_lra = (char)f0_cali_step + 32;
 		pr_info("%s f0_cali_lra=%d\n", __func__, (int)f0_cali_lra);
+		aw8695->f0_calib_data = (int)f0_cali_lra;
+		printk("%s f0_cali_lra=%d\n", __func__, (int)f0_cali_lra);
 
+		aw8695->cali_lra = (char)f0_cali_lra;
+		aw8695_set_cali_lra_to_nvram(aw8695->cali_lra);
 		/* update cali step */
 		aw8695_i2c_write(aw8695, AW8695_REG_TRIM_LRA,
 				 (char)f0_cali_lra);
@@ -2962,9 +2991,14 @@ static ssize_t aw8695_f0_show(struct device *dev, struct device_attribute *attr,
 	aw8695->f0_cali_flag = AW8695_HAPTIC_LRA_F0;
 	aw8695_haptic_get_f0(aw8695);
 	mutex_unlock(&aw8695->lock);
-	len +=
-	    snprintf(buf + len, PAGE_SIZE - len, "aw8695 lra f0 = %d\n",
-		     aw8695->f0);
+	if (aw8695->f0_show> CALIBRATION_F0_MAX ||
+		aw8695->f0_show < CALIBRATION_F0_MIN) {
+		len += snprintf(buf+len, PAGE_SIZE-len, "FAILED aw8695 lra f0_show = %d, f0 = %d," 
+				"out of range(%d, %d)\n",
+				aw8695->f0_show, aw8695->f0, CALIBRATION_F0_MIN, CALIBRATION_F0_MAX);
+	} else
+		len += snprintf(buf+len, PAGE_SIZE-len, "PASS aw8695 lra f0_show = %d, f0 = %d\n",
+				aw8695->f0_show,  aw8695->f0);
 	return len;
 }
 
@@ -3713,6 +3747,90 @@ static ssize_t aw8695_haptic_audio_time_store(struct device *dev,
 	return count;
 }
 
+static ssize_t aw8695_haptic_cali_lra_show(struct device *dev,
+				struct device_attribute *attr, char *buf)
+{
+#ifdef TIMED_OUTPUT
+	struct timed_output_dev *to_dev = dev_get_drvdata(dev);
+	struct aw8695 *aw8695 = container_of(to_dev, struct aw8695, to_dev);
+#else
+	struct led_classdev *cdev = dev_get_drvdata(dev);
+	struct aw8695 *aw8695 = container_of(cdev, struct aw8695, cdev);
+#endif
+	ssize_t len = 0;
+	char cali_lra_temp = 0;
+
+	if (aw8695_get_cali_lra_from_nvram(&cali_lra_temp) == 0) {
+		len += snprintf(buf + len, PAGE_SIZE - len, 
+		"aw8695_get_cali_lra_from_nvram ok, cali_lra:%d\n", cali_lra_temp);
+
+		aw8695->cali_lra = cali_lra_temp;
+		aw8695_i2c_write(aw8695, AW8695_REG_TRIM_LRA,
+		aw8695->cali_lra);
+	} else { // calibration f0 if nv_read fail 
+		len += snprintf(buf + len, PAGE_SIZE - len, 
+		"aw8695_get_cali_lra_from_nvram fail! \n");
+		mutex_lock(&aw8695->lock);
+		aw8695_haptic_f0_calibration(aw8695);
+		mutex_unlock(&aw8695->lock);
+	}
+
+	mutex_lock(&aw8695->lock);
+	aw8695->f0_cali_flag = AW8695_HAPTIC_CALI_F0;
+	aw8695_haptic_get_f0(aw8695);
+	mutex_unlock(&aw8695->lock);
+	len +=
+	    snprintf(buf + len, PAGE_SIZE - len, "aw8695 cali f0 = %d\n",
+		     aw8695->f0);
+
+	return len;
+}
+#if 0
+static ssize_t aw8695_haptic_cali_lra_show(struct device *dev,
+					 struct device_attribute *attr,
+					 char *buf)
+{
+#ifdef TIMED_OUTPUT
+	struct timed_output_dev *to_dev = dev_get_drvdata(dev);
+	struct aw8695 *aw8695 = container_of(to_dev, struct aw8695, to_dev);
+#else
+	struct led_classdev *cdev = dev_get_drvdata(dev);
+	struct aw8695 *aw8695 = container_of(cdev, struct aw8695, cdev);
+#endif
+	ssize_t len = 0;
+
+	len +=
+	    snprintf(buf + len, PAGE_SIZE - len, "f0_calib_data=%d\n",
+		     aw8695->f0_calib_data);
+
+	return len;
+}
+#endif
+static ssize_t aw8695_haptic_cali_lra_store(struct device *dev,
+					  struct device_attribute *attr,
+					  const char *buf, size_t count)
+{
+#ifdef TIMED_OUTPUT
+	struct timed_output_dev *to_dev = dev_get_drvdata(dev);
+	struct aw8695 *aw8695 = container_of(to_dev, struct aw8695, to_dev);
+#else
+	struct led_classdev *cdev = dev_get_drvdata(dev);
+	struct aw8695 *aw8695 = container_of(cdev, struct aw8695, cdev);
+#endif
+	unsigned int val = 0;
+	int rc = 0;
+
+	rc = kstrtouint(buf, 0, &val);
+	if (rc < 0)
+		return rc;
+
+	mutex_lock(&aw8695->lock);
+	aw8695->f0_calib_data = val;
+	mutex_unlock(&aw8695->lock);
+
+	return count;
+}
+
 static DEVICE_ATTR(state, S_IWUSR | S_IRUGO, aw8695_state_show,
 		   aw8695_state_store);
 static DEVICE_ATTR(duration, S_IWUSR | S_IRUGO, aw8695_duration_show,
@@ -3767,6 +3885,10 @@ static DEVICE_ATTR(haptic_audio_time, S_IWUSR | S_IRUGO,
 		   aw8695_haptic_audio_time_show,
 		   aw8695_haptic_audio_time_store);
 
+static DEVICE_ATTR(cali_lra, S_IWUSR | S_IRUGO,
+		   aw8695_haptic_cali_lra_show,
+		   aw8695_haptic_cali_lra_store);
+
 static struct attribute *aw8695_vibrator_attributes[] = {
 	&dev_attr_state.attr,
 	&dev_attr_duration.attr,
@@ -3796,6 +3918,7 @@ static struct attribute *aw8695_vibrator_attributes[] = {
 	&dev_attr_osc_cali.attr,
 	&dev_attr_haptic_audio.attr,
 	&dev_attr_haptic_audio_time.attr,
+	&dev_attr_cali_lra.attr,
 	NULL
 };
 
@@ -3850,6 +3973,7 @@ static void aw8695_vibrator_work_routine(struct work_struct *work)
 	mutex_lock(&aw8695->lock);
 
 	aw8695_haptic_stop(aw8695);
+	aw8695_haptic_upload_lra(aw8695, AW8695_HAPTIC_F0_CALI_LRA);
 	if (aw8695->state) {
 		if (aw8695->activate_mode == AW8695_HAPTIC_ACTIVATE_RAM_MODE) {
 			aw8695_haptic_ram_config(aw8695);

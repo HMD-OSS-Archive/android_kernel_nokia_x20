@@ -8,6 +8,7 @@
   alarm_cancel
   alarm_init
   alarm_start_relative
+  alarm_expires_remaining
   alloc_chrdev_region
   __alloc_disk_node
   alarmtimer_get_rtcdev
@@ -44,10 +45,12 @@
   backlight_device_unregister
   bin2hex
   __bitmap_clear
+  bitmap_find_free_region
   bitmap_find_next_zero_area_off
   bitmap_free
   bitmap_parselist
   bitmap_print_to_pagebuf
+  bitmap_release_region
   __bitmap_set
   __bitmap_subset
   bitmap_zalloc
@@ -210,6 +213,8 @@
   clk_hw_round_rate
   __clk_is_enabled
   __clk_mux_determine_rate_closest
+  clk_notifier_register
+  clk_notifier_unregister
   clk_prepare
   clk_put
   clk_register
@@ -615,19 +620,24 @@
   drm_atomic_helper_crtc_destroy_state
   __drm_atomic_helper_crtc_duplicate_state
   drm_atomic_helper_crtc_duplicate_state
+  __drm_atomic_helper_crtc_reset
   drm_atomic_helper_crtc_reset
   drm_atomic_helper_dirtyfb
   drm_atomic_helper_disable_plane
   drm_atomic_helper_duplicate_state
   drm_atomic_helper_page_flip
+  __drm_atomic_helper_plane_destroy_state
   drm_atomic_helper_plane_destroy_state
   __drm_atomic_helper_plane_duplicate_state
   drm_atomic_helper_plane_duplicate_state
+  __drm_atomic_helper_plane_reset
   drm_atomic_helper_plane_reset
   drm_atomic_helper_prepare_planes
   __drm_atomic_helper_private_obj_duplicate_state
+  drm_atomic_helper_resume
   drm_atomic_helper_set_config
   drm_atomic_helper_shutdown
+  drm_atomic_helper_suspend
   drm_atomic_helper_swap_state
   drm_atomic_helper_update_legacy_modeset_state
   drm_atomic_helper_update_plane
@@ -635,6 +645,8 @@
   drm_atomic_helper_wait_for_vblanks
   drm_atomic_private_obj_init
   drm_atomic_set_crtc_for_connector
+  drm_atomic_set_crtc_for_plane
+  drm_atomic_set_fb_for_plane
   drm_atomic_set_fence_for_plane
   drm_atomic_set_mode_for_crtc
   drm_atomic_state_alloc
@@ -663,6 +675,7 @@
   drm_connector_list_iter_begin
   drm_connector_list_iter_end
   drm_connector_list_iter_next
+  drm_connector_list_update
   drm_connector_register
   drm_connector_set_tile_property
   drm_connector_unregister
@@ -673,9 +686,12 @@
   drm_crtc_init_with_planes
   drm_crtc_send_vblank_event
   drm_crtc_set_max_vblank_count
+  drm_crtc_vblank_get
   drm_crtc_vblank_off
   drm_crtc_vblank_on
+  drm_crtc_vblank_put
   drm_crtc_vblank_reset
+  drm_crtc_vblank_waitqueue
   drm_crtc_wait_one_vblank
   drm_cvt_mode
   drm_dbg
@@ -713,8 +729,10 @@
   drm_dp_link_train_channel_eq_delay
   drm_dp_link_train_clock_recovery_delay
   drm_dp_mst_allocate_vcpi
+  drm_dp_mst_atomic_check
   drm_dp_mst_deallocate_vcpi
   drm_dp_mst_detect_port
+  drm_dp_mst_dump_topology
   drm_dp_mst_get_edid
   drm_dp_mst_get_port_malloc
   drm_dp_mst_hpd_irq
@@ -733,6 +751,7 @@
   drm_err
   drm_event_reserve_init_locked
   drm_format_info
+  drm_framebuffer_cleanup
   drm_framebuffer_init
   drm_framebuffer_lookup
   drm_framebuffer_remove
@@ -757,6 +776,10 @@
   drm_gem_prime_mmap
   drm_gem_private_object_init
   drm_gem_put_pages
+  drm_gem_shmem_dumb_create
+  drm_gem_shmem_get_pages_sgt
+  drm_gem_shmem_mmap
+  drm_gem_shmem_prime_import_sg_table
   drm_gem_vm_close
   drm_gem_vm_open
   drm_get_connector_status_name
@@ -768,11 +791,14 @@
   drm_ioctl
   drm_irq_install
   drm_irq_uninstall
+  drm_is_current_master
   drm_kms_helper_hotplug_event
   drm_kms_helper_poll_disable
   drm_kms_helper_poll_enable
   drm_kms_helper_poll_fini
   drm_kms_helper_poll_init
+  drm_master_get
+  drm_master_put
   drm_match_cea_mode
   drm_mm_init
   drm_mm_insert_node_in_range
@@ -788,6 +814,7 @@
   drm_mode_create_dp_colorspace_property
   drm_mode_create_tile_group
   drm_mode_debug_printmodeline
+  drm_mode_destroy
   drm_mode_duplicate
   drm_mode_equal
   drm_mode_get_tile_group
@@ -795,6 +822,7 @@
   drm_mode_object_get
   drm_mode_object_put
   drm_mode_probed_add
+  drm_mode_prune_invalid
   drm_modeset_acquire_fini
   drm_modeset_acquire_init
   drm_modeset_backoff
@@ -805,6 +833,7 @@
   drm_modeset_lock_all_ctx
   drm_mode_set_name
   drm_modeset_unlock_all
+  drm_mode_sort
   drm_mode_vrefresh
   drm_object_attach_property
   drm_object_property_set_value
@@ -818,6 +847,7 @@
   drm_panel_remove
   drm_plane_cleanup
   drm_plane_create_rotation_property
+  drm_plane_from_index
   drm_poll
   drm_prime_gem_destroy
   drm_prime_pages_to_sg
@@ -833,6 +863,7 @@
   drm_property_lookup_blob
   drm_put_dev
   drm_read
+  drm_rect_rotate
   drm_release
   drm_rotation_simplify
   drm_send_event_locked
@@ -875,6 +906,8 @@
   fd_install
   fget
   file_path
+  filp_close
+  filp_open
   find_last_bit
   find_next_bit
   find_next_zero_bit
@@ -908,6 +941,7 @@
   fsl8250_handle_irq
   fs_kobj
   fsstack_copy_attr_all
+  ftrace_set_clr_event
   full_name_hash
   fwnode_connection_find_match
   fwnode_get_parent
@@ -975,6 +1009,8 @@
   get_zeroed_page
   gnss_allocate_device
   gnss_deregister_device
+  i2c_smbus_write_byte_data
+  i2c_smbus_read_byte_data
   gnss_insert_raw
   gnss_put_device
   gnss_register_device
@@ -1025,7 +1061,6 @@
   hrtimer_init_sleeper
   hrtimer_start_range_ns
   hrtimer_try_to_cancel
-  hrtimer_init_sleeper
   hvc_alloc
   hvc_instantiate
   hvc_kick
@@ -1041,13 +1076,22 @@
   hwspin_lock_unregister
   __hwspin_unlock
   hypervisor_kobj
+  i2c_adapter_type
   i2c_add_adapter
   i2c_add_numbered_adapter
   i2c_del_adapter
   i2c_del_driver
+  i2c_get_device_id
   i2c_get_dma_safe_msg_buf
   i2c_put_dma_safe_msg_buf
   i2c_register_driver
+  i2c_smbus_read_byte
+  i2c_smbus_write_byte
+  i2c_smbus_read_byte_data
+  i2c_smbus_write_byte_data
+  __i2c_smbus_xfer
+  i2c_smbus_xfer
+  __i2c_transfer
   i2c_transfer
   i2c_transfer_buffer_flags
   icc_get
@@ -1066,6 +1110,7 @@
   ida_free
   idr_alloc
   idr_alloc_cyclic
+  idr_alloc_u32
   idr_destroy
   idr_find
   idr_for_each
@@ -1191,6 +1236,7 @@
   irq_domain_remove
   irq_domain_set_hwirq_and_chip
   irq_domain_set_info
+  irq_domain_simple_ops
   irq_domain_update_bus_token
   irq_domain_xlate_onecell
   irq_domain_xlate_twocell
@@ -1581,6 +1627,7 @@
   of_property_read_u64_index
   of_property_read_variable_u16_array
   of_property_read_variable_u32_array
+  of_property_read_variable_u64_array
   of_property_read_variable_u8_array
   of_prop_next_string
   of_prop_next_u32
@@ -1630,6 +1677,7 @@
   pci_device_group
   pci_disable_device
   pci_disable_msi
+  pcie_bus_configure_settings
   pcie_capability_read_word
   pci_enable_device
   pci_find_capability
@@ -1764,6 +1812,7 @@
   __pm_runtime_use_autosuspend
   __pm_stay_awake
   pm_stay_awake
+  pm_system_cancel_wakeup
   pm_system_wakeup
   pm_wakeup_dev_event
   pm_wakeup_ws_event
@@ -1872,7 +1921,6 @@
   __refrigerator
   regcache_cache_bypass
   regcache_cache_only
-  regcache_cache_bypass
   regcache_mark_dirty
   regcache_sync
   regcache_sync_region
@@ -1959,6 +2007,7 @@
   reset_control_put
   reset_control_reset
   revalidate_disk
+  revert_creds
   rfkill_alloc
   rfkill_destroy
   rfkill_init_sw_state
@@ -1985,6 +2034,7 @@
   rpmsg_set_signals
   rpmsg_trysend
   rpmsg_unregister_device
+  rtc_add_group
   rtc_class_close
   rtc_class_open
   rtc_read_time
@@ -1993,6 +2043,9 @@
   rtc_tm_to_time64
   rtc_update_irq
   rtc_valid_tm
+  rt_mutex_lock
+  rt_mutex_trylock
+  rt_mutex_unlock
   rtnl_is_locked
   rtnl_link_register
   rtnl_link_unregister
@@ -2394,6 +2447,8 @@
   timer_unstable_counter_workaround
   timespec64_to_jiffies
   _totalram_pages
+  trace_array_create
+  trace_array_destroy
   __trace_bprintk
   trace_define_field
   trace_event_buffer_commit
@@ -2403,6 +2458,7 @@
   trace_event_reg
   trace_handle_return
   __tracepoint_dma_fence_emit
+  __tracepoint_gpu_mem_total
   __tracepoint_xdp_exception
   trace_print_array_seq
   trace_print_flags_seq
@@ -2704,6 +2760,7 @@
   vb2_create_bufs
   vb2_create_framevec
   vb2_destroy_framevec
+  vb2_dma_contig_memops
   vb2_dqbuf
   vb2_expbuf
   vb2_fop_mmap
@@ -2840,3 +2897,7 @@
   xdp_rxq_info_reg
   xdp_rxq_info_reg_mem_model
   xdp_rxq_info_unreg
+  pci_get_slot
+  pcie_capability_clear_and_set_word
+  pci_device_is_present
+  pci_find_bus

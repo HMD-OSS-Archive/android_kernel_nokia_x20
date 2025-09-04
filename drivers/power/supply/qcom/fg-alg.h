@@ -86,9 +86,11 @@ enum ttf_param {
 	TTF_RBATT,
 	TTF_VFLOAT,
 	TTF_CHG_TYPE,
+//merged by changxue.fang for thething,start
 #ifdef CONFIG_HS_CHARGE_FG_FUNCTION
 	TTF_TEMP,
 #endif /*CONFIG_HS_CHARGE_FG_FUNCTION*/
+//merged by changxue.fang for thething,end
 	TTF_CHG_STATUS,
 	TTF_TTE_VALID,
 	TTF_CHG_DONE,
@@ -134,10 +136,12 @@ struct ttf {
 	int			period_ms;
 	s64			last_ms;
 	struct delayed_work	ttf_work;
+//merged by changxue.fang for thething,start
 #ifdef	CONFIG_HS_CHARGE_FG_FUNCTION
 	struct power_supply	*batt_psy;
 	struct power_supply	*usb_psy;
 #endif /*CONFIG_HS_CHARGE_FG_FUNCTION*/
+//merged by changxue.fang for thething,end
 	int (*get_ttf_param)(void *data, enum ttf_param, int *val);
 	int (*awake_voter)(void *data, bool vote);
 };

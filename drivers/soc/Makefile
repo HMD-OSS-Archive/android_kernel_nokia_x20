@@ -17,6 +17,11 @@ obj-$(CONFIG_SOC_XWAY)		+= lantiq/
 obj-y				+= mediatek/
 obj-y				+= amlogic/
 obj-y				+= qcom/
+#merged by changxue.fang for thething,20210315,start
+ifeq ($(BUILD_THETHING_PROJECT),true)
+obj-y		+= hs/
+endif
+#merged by changxue.fang for thething,20210315,end
 obj-y				+= renesas/
 obj-$(CONFIG_ARCH_ROCKCHIP)	+= rockchip/
 obj-$(CONFIG_SOC_SAMSUNG)	+= samsung/

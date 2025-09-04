@@ -499,6 +499,14 @@ config HDCP_QSEECOM
           via the QSEECOM Driver and also communicates with the Receiver via
           APIs exposed by the interface driver.
 
+config PROFILER
+	tristate "Qualcomm Technologies, Inc. trustzone Communicator driver"
+	help
+	  Provides a communication interface between userspace and
+	  trustzone using Secure Channel Manager (SCM) interface.
+	  It exposes APIs for userspace to get system profiling
+	  information.
+
 config WIGIG_SENSING_SPI
 	tristate "Sensing over 60GHz using wil6210 / SPI bus"
 	depends on SPI && WIL6210
@@ -551,6 +559,8 @@ source "drivers/misc/cardreader/Kconfig"
 source "drivers/misc/habanalabs/Kconfig"
 source "drivers/misc/aw8624_haptic/Kconfig"
 source "drivers/misc/aw8695_haptic/Kconfig"
+#merged by changxue.fang for thething sdcard,20210408
+source "drivers/misc/checksdcard/Kconfig"
 endmenu
 
 config ST21NFC
@@ -587,3 +597,5 @@ config ESE_ST54J
     depends on SPI && ST21NFC
     help
     ST Microelectronics ST54J ESE Near Field Communication controller support. 
+
+source "drivers/misc/st21nfc/Kconfig"

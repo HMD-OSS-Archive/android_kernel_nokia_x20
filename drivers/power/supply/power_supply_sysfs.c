@@ -18,9 +18,11 @@
 
 #include "power_supply.h"
 
+//merged by changxue.fang for thething,20210414,start
 #ifdef CONFIG_HS_CHARGE_FG_FUNCTION
 #include <linux/qti_power_supply.h>
 #endif /*CONFIG_HS_CHARGE_FG_FUNCTION*/
+//merged by changxue.fang for thething,20210414,end
 
 #define MAX_PROP_NAME_LEN 30
 
@@ -61,12 +63,14 @@ static const char * const POWER_SUPPLY_TYPE_TEXT[] = {
 	[POWER_SUPPLY_TYPE_USB_PD_DRP]		= "USB_PD_DRP",
 	[POWER_SUPPLY_TYPE_APPLE_BRICK_ID]	= "BrickID",
 	[POWER_SUPPLY_TYPE_WIRELESS]		= "Wireless",
+//merged by changxue.fang for thething,20210414,start
 #ifdef CONFIG_HS_CHARGE_FG_FUNCTION
 	[POWER_SUPPLY_TYPE_USB_HVDCP]		= "USB_HVDCP",
 	[POWER_SUPPLY_TYPE_USB_HVDCP_3]	= "USB_HVDCP_3",
 	[POWER_SUPPLY_TYPE_USB_HVDCP_3P5]	= "USB_HVDCP_3P5",
 	[POWER_SUPPLY_TYPE_USB_FLOAT]		= "USB_FLOAT",
 #endif /*CONFIG_HS_CHARGE_FG_FUNCTION*/
+//merged by changxue.fang for thething,20210414,end
 };
 
 static const char * const POWER_SUPPLY_USB_TYPE_TEXT[] = {
@@ -182,9 +186,11 @@ static struct power_supply_attr power_supply_attrs[] = {
 	POWER_SUPPLY_ATTR(CHARGE_CONTROL_START_THRESHOLD),
 	POWER_SUPPLY_ATTR(CHARGE_CONTROL_END_THRESHOLD),
 	POWER_SUPPLY_ATTR(INPUT_CURRENT_LIMIT),
-#ifdef CONFIG_HS_CHARGE_FG_FUNCTION	
+//merged by changxue.fang for thething,20210414,start
+#ifdef CONFIG_HS_CHARGE_FG_FUNCTION
 	POWER_SUPPLY_ATTR(CHARGER_TYPE),
 #endif /*CONFIG_HS_CHARGE_FG_FUNCTION*/
+//merged by changxue.fang for thething,20210414,end
 	POWER_SUPPLY_ATTR(INPUT_VOLTAGE_LIMIT),
 	POWER_SUPPLY_ATTR(INPUT_POWER_LIMIT),
 	POWER_SUPPLY_ATTR(ENERGY_FULL_DESIGN),
@@ -320,6 +326,7 @@ static ssize_t power_supply_show_property(struct device *dev,
 	case POWER_SUPPLY_PROP_MODEL_NAME ... POWER_SUPPLY_PROP_SERIAL_NUMBER:
 		ret = sprintf(buf, "%s\n", value.strval);
 		break;
+//merged by changxue.fang for thething,20210414,start
 #ifdef CONFIG_HS_CHARGE_FG_FUNCTION
        case POWER_SUPPLY_PROP_CHARGER_TYPE:
 		pr_err("%s value =%d\n",__func__,value.intval);
@@ -336,6 +343,7 @@ static ssize_t power_supply_show_property(struct device *dev,
                        POWER_SUPPLY_TYPE_TEXT[value.intval]);
                break;
 #endif /*CONFIG_HS_CHARGE_FG_FUNCTION*/
+//merged by changxue.fang for thething,20210414,end
 	default:
 		ret = sprintf(buf, "%d\n", value.intval);
 	}

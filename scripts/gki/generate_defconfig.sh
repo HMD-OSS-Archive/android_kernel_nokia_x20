@@ -6,7 +6,7 @@
 
 usage() {
 	echo "Usage: $0 <platform_defconfig_variant>"
-	echo "Variants: <platform>-gki_defconfig, <platform>-qgki_defconfig, <platform>-qgki_smt_defconfig, <platform>-consolidate_defconfig and <platform>-qgki-debug_defconfig"
+	echo "Variants: <platform>-gki_defconfig, <platform>-qgki_defconfig, <platform>-consolidate_defconfig and <platform>-qgki-debug_defconfig"
 	echo "Example: $0 lahaina-gki_defconfig"
 	exit 1
 }
@@ -61,9 +61,6 @@ case "$REQUIRED_DEFCONFIG" in
 		;&	# Intentional fallthrough
 	${PLATFORM_NAME}-qgki-consolidate_defconfig )
 		FINAL_DEFCONFIG_BLEND+=" $QCOM_CONSOLIDATE_FRAG"
-		;&	# Intentional fallthrough
-	${PLATFORM_NAME}-qgki_smt_defconfig )
-		FINAL_DEFCONFIG_BLEND+=" $QCOM_SMT_FRAG"
 		;&	# Intentional fallthrough
 	${PLATFORM_NAME}-qgki_defconfig )
 		# DEBUG_FS fragment.

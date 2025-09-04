@@ -6,5 +6,7 @@ obj-y    += efuse/
 
 obj-y    += pm/
 
+obj-y    += mm/
+
 obj-y    += audio/
 
