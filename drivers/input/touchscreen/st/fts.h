@@ -181,6 +181,7 @@
 #define PINCTRL_STATE_SUSPEND   "pmx_ts_suspend"
 #define PINCTRL_STATE_RELEASE   "pmx_ts_release"
 
+
 #ifdef PHONE_GESTURE
 extern u16 gesture_coordinates_x[GESTURE_COORDS_REPORT_MAX];
 extern u16 gesture_coordinates_y[GESTURE_COORDS_REPORT_MAX];
@@ -415,7 +416,6 @@ struct fts_ts_info {
 	struct clk *core_clk;
 	struct clk *iface_clk;
 	atomic_t trusted_touch_initialized;
-	atomic_t trusted_touch_underway;
 	atomic_t trusted_touch_enabled;
 	atomic_t trusted_touch_event;
 	atomic_t trusted_touch_abort_status;

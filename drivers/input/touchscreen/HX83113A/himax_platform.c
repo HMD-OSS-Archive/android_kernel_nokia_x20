@@ -15,7 +15,6 @@
 
 #include "himax_platform.h"
 #include "himax_common.h"
-#include <linux/power_supply.h>
 
 #if defined(HX_CONFIG_DRM)
 struct drm_panel *active_panel;
@@ -24,12 +23,6 @@ struct drm_panel *active_panel;
 int i2c_error_count;
 bool ic_boot_done;
 struct spi_device *spi;
-
-#if defined(HX_USB_DETECT_GLOBAL)
-bool USB_flag;
-EXPORT_SYMBOL(USB_flag);
-#endif
-
 
 static uint8_t *gBuffer;
 static uint8_t *g_read_xfer_data;
@@ -816,21 +809,6 @@ static void himax_ts_isr_func(struct himax_ts_data *ts)
 
 irqreturn_t himax_ts_thread(int irq, void *ptr)
 {
-#if defined(CONFIG_PM) && FTS_PATCH_COMERR_PM
-	int ret = 0;
-	struct himax_ts_data *ts = private_ts;
-
-	if ((ts->suspended) && (ts->pm_suspend)) {
-		ret = wait_for_completion_timeout(
-			&ts->pm_completion,
-			msecs_to_jiffies(700));
-		if (!ret) {
-			I("%s Bus don't resume from pm(deep),timeout,skip irq\n", __func__);
-			return IRQ_HANDLED;
-	}
-}
-#endif
-
 	himax_ts_isr_func((struct himax_ts_data *)ptr);
 
 	return IRQ_HANDLED;
@@ -945,8 +923,8 @@ int himax_ts_unregister_interrupt(void)
 
 static int himax_common_suspend(struct device *dev)
 {
-	struct himax_ts_data *ts = dev_get_drvdata(dev); 
-	
+	struct himax_ts_data *ts = dev_get_drvdata(dev);
+
 	I("%s: enter\n", __func__);
 #if defined(HX_CONFIG_DRM) && !defined(HX_CONFIG_FB)
 	if (!ts->initialized)
@@ -1127,92 +1105,6 @@ int drm_notifier_callback(struct notifier_block *self,
 }
 #endif
 
-#if defined(HX_USB_DETECT_GLOBAL)
-int usb_notifier_callback(struct notifier_block *nb, unsigned long evt, void *ptr)
-{
-
-	struct power_supply *usb_psy;
-        struct power_supply *pc_psy;
-        union power_supply_propval val = {0};
-        union power_supply_propval val_pc = {0};
-
-	struct himax_ts_data *ts = container_of(nb, struct himax_ts_data, usb_notif);
-
-	if (!ts->usb_psy || !ts->pc_psy ) {
-		ts->usb_psy = power_supply_get_by_name("usb");
-		ts->pc_psy = power_supply_get_by_name("pc_port");
-	}
-
-	if ((ptr != ts->usb_psy && ptr != ts->pc_psy)  || evt != PSY_EVENT_PROP_CHANGED) {
-		return 0;	
-	}
-	
-
-	usb_psy = power_supply_get_by_name("usb");
-	pc_psy = power_supply_get_by_name("pc_port");
-        if (!usb_psy) {
-                I("Could not get USB power_supply\n");
-        }
-        if (usb_psy) {
-                if (!power_supply_get_property(usb_psy,POWER_SUPPLY_PROP_ONLINE, &val)) {
-                        //connect_status  =  val.intval;
-                        //I("%s: USB connect_status=: %d\n", __func__,connect_status);
-                } 
-        }
-        
-       
-        if (!pc_psy) {
-                I("Could not get PC power_supply\n");
-        }
-        if (pc_psy) {
-                if (!power_supply_get_property(pc_psy,POWER_SUPPLY_PROP_ONLINE, &val_pc)){
-                        //connect_status  =  val_pc.intval;
-                        //I("%s: PC connect_status=: %d\n", __func__,connect_status);
-                }
-        }
-
-
-	if (val.intval == 0 && val_pc.intval == 0){
-		USB_flag  =  0;
-	} else {
-		USB_flag  =  1;
-	}
-
-
-	return 0;
-}
-#endif
-
-#if defined(CONFIG_PM) && FTS_PATCH_COMERR_PM
-static int himax_pm_suspend(struct device *dev)
-{
-    struct himax_ts_data *ts;
-
-    himax_int_enable(0);/* disable irq */   
-    ts = dev_get_drvdata(dev);
-    I("%s: enter\n", __func__);
-    ts->pm_suspend = true;
-    reinit_completion(&ts->pm_completion);
-    himax_int_enable(1); //enable irq
-    return 0;
-}
-
-static int himax_pm_resume(struct device *dev)
-{
-    struct himax_ts_data *ts = dev_get_drvdata(dev);
-
-    I("%s: enter\n", __func__);
-    ts->pm_suspend = false;
-    complete(&ts->pm_completion);
-    return 0;
-}
-
-static const struct dev_pm_ops himax_dev_pm_ops = {
-    .suspend = himax_pm_suspend,
-    .resume = himax_pm_resume,
-};
-#endif
-
 int himax_chip_common_probe(struct spi_device *spi)
 {
 	struct himax_ts_data *ts;
@@ -1323,9 +1215,6 @@ static struct spi_driver himax_common_driver = {
 		.name =		HIMAX_common_NAME,
 		.owner =	THIS_MODULE,
 		.of_match_table = himax_match_table,
-#if defined(CONFIG_PM) && FTS_PATCH_COMERR_PM
-		.pm = &himax_dev_pm_ops,
-#endif
 	},
 	.probe =	himax_chip_common_probe,
 	.remove =	himax_chip_common_remove,

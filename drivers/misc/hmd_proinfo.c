@@ -84,4 +84,5 @@ static void __exit hmd_proinfo_exit(void)
 late_initcall(hmd_proinfo_init);
 module_exit(hmd_proinfo_exit);
 
+MODULE_AUTHOR("ning.wei@hmdglobal.com");
 MODULE_LICENSE("GPL");

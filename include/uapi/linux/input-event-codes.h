@@ -278,8 +278,7 @@
 #define KEY_PAUSECD		201
 #define KEY_PROG3		202
 #define KEY_PROG4		203
-#define KEY_ALL_APPLICATIONS	204	/* AC Desktop Show All Applications */
-#define KEY_DASHBOARD		KEY_ALL_APPLICATIONS
+#define KEY_DASHBOARD		204	/* AL Dashboard */
 #define KEY_SUSPEND		205
 #define KEY_CLOSE		206	/* AC Close */
 #define KEY_PLAY		207
@@ -608,8 +607,6 @@
 #define KEY_VOICECOMMAND		0x246	/* Listening Voice Command */
 #define KEY_ASSISTANT		0x247	/* AL Context-aware desktop assistant */
 #define KEY_KBD_LAYOUT_NEXT	0x248	/* AC Next Keyboard Layout Select */
-#define KEY_EMOJI_PICKER	0x249	/* Show/hide emoji picker (HUTRR101) */
-#define KEY_DICTATE		0x24a	/* Start or Stop Voice Dictation Session (HUTRR99) */
 
 #define KEY_BRIGHTNESS_MIN		0x250	/* Set Brightness to Minimum */
 #define KEY_BRIGHTNESS_MAX		0x251	/* Set Brightness to Maximum */
@@ -699,13 +696,6 @@
 #define KEY_MIN_INTERESTING	KEY_MUTE
 #define KEY_MAX			0x2ff
 #define KEY_CNT			(KEY_MAX+1)
-
-/*church.zhong add for punisher project 2021-03-12.*/
-#ifdef TARGET_PRODUCT_PUNISHER
-#define KEY_SAR_NEAR   0x2ec // 748
-#define KEY_SAR_CLOSE  0x2ed // 749
-#define KEY_SAR_FAR    0x2f2 // 754
-#endif
 
 /*
  * Relative axes

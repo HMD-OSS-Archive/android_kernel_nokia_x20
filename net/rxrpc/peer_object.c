@@ -297,12 +297,6 @@ static struct rxrpc_peer *rxrpc_create_peer(struct rxrpc_sock *rx,
 	return peer;
 }
 
-static void rxrpc_free_peer(struct rxrpc_peer *peer)
-{
-	rxrpc_put_local(peer->local);
-	kfree_rcu(peer, rcu);
-}
-
 /*
  * Set up a new incoming peer.  There shouldn't be any other matching peers
  * since we've already done a search in the list from the non-reentrant context
@@ -369,7 +363,7 @@ struct rxrpc_peer *rxrpc_lookup_peer(struct rxrpc_sock *rx,
 		spin_unlock_bh(&rxnet->peer_hash_lock);
 
 		if (peer)
-			rxrpc_free_peer(candidate);
+			kfree(candidate);
 		else
 			peer = candidate;
 	}
@@ -424,7 +418,8 @@ static void __rxrpc_put_peer(struct rxrpc_peer *peer)
 	list_del_init(&peer->keepalive_link);
 	spin_unlock_bh(&rxnet->peer_hash_lock);
 
-	rxrpc_free_peer(peer);
+	rxrpc_put_local(peer->local);
+	kfree_rcu(peer, rcu);
 }
 
 /*
@@ -460,7 +455,8 @@ void rxrpc_put_peer_locked(struct rxrpc_peer *peer)
 	if (n == 0) {
 		hash_del_rcu(&peer->hash_link);
 		list_del_init(&peer->keepalive_link);
-		rxrpc_free_peer(peer);
+		rxrpc_put_local(peer->local);
+		kfree_rcu(peer, rcu);
 	}
 }
 
@@ -504,21 +500,11 @@ EXPORT_SYMBOL(rxrpc_kernel_get_peer);
  * rxrpc_kernel_get_srtt - Get a call's peer smoothed RTT
  * @sock: The socket on which the call is in progress.
  * @call: The call to query
- * @_srtt: Where to store the SRTT value.
  *
- * Get the call's peer smoothed RTT in uS.
+ * Get the call's peer smoothed RTT.
  */
-bool rxrpc_kernel_get_srtt(struct socket *sock, struct rxrpc_call *call,
-			   u32 *_srtt)
+u32 rxrpc_kernel_get_srtt(struct socket *sock, struct rxrpc_call *call)
 {
-	struct rxrpc_peer *peer = call->peer;
-
-	if (peer->rtt_count == 0) {
-		*_srtt = 1000000; /* 1S */
-		return false;
-	}
-
-	*_srtt = call->peer->srtt_us >> 3;
-	return true;
+	return call->peer->srtt_us >> 3;
 }
 EXPORT_SYMBOL(rxrpc_kernel_get_srtt);

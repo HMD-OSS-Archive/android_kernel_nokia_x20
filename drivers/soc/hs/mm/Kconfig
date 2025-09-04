@@ -1,4 +1,0 @@
-config TTG_BOOT_INFO
-	bool "thething Boot information"
-	help
-	  The information of booting system

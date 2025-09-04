@@ -347,7 +347,6 @@ struct aw8695 {
 	unsigned char rtp_routine_on;
 
 	unsigned int f0;
-	unsigned int f0_show;
 	unsigned int cont_f0;
 	unsigned char max_pos_beme;
 	unsigned char max_neg_beme;
@@ -365,20 +364,11 @@ struct aw8695 {
 	struct aw8695_dts_info info;
 	unsigned int ramupdate_flag;
 	unsigned int rtpupdate_flag;
-	unsigned int lra_calib_data;
-	unsigned int f0_calib_data;
-	char cali_lra;
 };
 
 struct aw8695_container {
 	int len;
 	unsigned char data[];
-};
-
-
-enum aw8695_haptic_cali_lra {
-	AW8695_HAPTIC_F0_CALI_LRA = 1,
-	AW8695_HAPTIC_RTP_CALI_LRA = 2,
 };
 
 /*********************************************************

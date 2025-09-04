@@ -316,7 +316,6 @@ int fts_gesture_readdata(struct fts_ts_data *ts_data, u8 *data)
     int i = 0;
     int index = 0;
     u8 buf[FTS_GESTURE_DATA_LEN] = { 0 };
-	u8 state = 0xFF;
     struct input_dev *input_dev = ts_data->input_dev;
     struct fts_gesture_st *gesture = &fts_gesture_data;
 
@@ -332,7 +331,7 @@ int fts_gesture_readdata(struct fts_ts_data *ts_data, u8 *data)
     memcpy(buf, data, FTS_GESTURE_DATA_LEN);
     if (buf[0] != ENABLE) {
         FTS_DEBUG("gesture not enable in fw, don't process gesture");
-        //return 1;
+        return 1;
     }
 
 
@@ -352,10 +351,6 @@ int fts_gesture_readdata(struct fts_ts_data *ts_data, u8 *data)
         gesture->coordinate_y[i] = (u16)(((buf[2 + index] & 0x0F) << 8)
                                          + buf[3 + index]);
     }
-	/*get doubule tap gesture id from addr:0xD3*/
-	fts_read_reg(FTS_REG_GESTURE_OUTPUT_ADDRESS, &state);
-	FTS_INFO("addr(0xD3) value = %x",state);
-	gesture->gesture_id = state;
 
     /* report gesture to OS */
     fts_gesture_report(input_dev, gesture->gesture_id);
@@ -382,8 +377,10 @@ int fts_gesture_suspend(struct fts_ts_data *ts_data)
     u8 state = 0xFF;
 
 	FTS_FUNC_ENTER();
-    if (enable_irq_wake(ts_data->irq)) 
-        FTS_DEBUG("enable_irq_wake(irq:%d) fail", ts_data->irq);
+#if 0
+	if (enable_irq_wake(ts_data->irq))
+		FTS_DEBUG("enable_irq_wake(irq:%d) fail", ts_data->irq);
+#endif
 	FTS_INFO("gesture suspend...");
 	/* gesture not enable, return immediately */
 	if (fts_gesture_data.mode == DISABLE) {
@@ -421,8 +418,10 @@ int fts_gesture_resume(struct fts_ts_data *ts_data)
     u8 state = 0xFF;
 
     FTS_FUNC_ENTER();
-    if (disable_irq_wake(ts_data->irq)) 
+#if 0
+    if (disable_irq_wake(ts_data->irq)) {
         FTS_DEBUG("disable_irq_wake(irq:%d) fail", ts_data->irq);
+#endif
 	FTS_INFO("gesture resume...");
 	/* gesture not enable, return immediately */
 	if (fts_gesture_data.mode == DISABLE) {

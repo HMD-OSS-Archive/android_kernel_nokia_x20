@@ -17,7 +17,7 @@
  * We consider 10% difference as significant.
  */
 #define IS_SIGNIFICANT_DIFF(val, ref) \
-	((ref) && (((100UL * abs((val) - (ref))) / (ref)) > 10))
+	(((100UL * abs((val) - (ref))) / (ref)) > 10)
 
 /**
  * Calculate the gap between two values.
@@ -233,9 +233,8 @@ void dim_park_tired(struct dim *dim);
  *
  * Calculate the delta between two samples (in data rates).
  * Takes into consideration counter wrap-around.
- * Returned boolean indicates whether curr_stats are reliable.
  */
-bool dim_calc_stats(struct dim_sample *start, struct dim_sample *end,
+void dim_calc_stats(struct dim_sample *start, struct dim_sample *end,
 		    struct dim_stats *curr_stats);
 
 /**

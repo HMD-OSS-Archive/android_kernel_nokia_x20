@@ -278,8 +278,6 @@ static int tcindex_filter_result_init(struct tcindex_filter_result *r,
 			     TCA_TCINDEX_POLICE);
 }
 
-static void tcindex_free_perfect_hash(struct tcindex_data *cp);
-
 static void tcindex_partial_destroy_work(struct work_struct *work)
 {
 	struct tcindex_data *p = container_of(to_rcu_work(work),
@@ -287,8 +285,7 @@ static void tcindex_partial_destroy_work(struct work_struct *work)
 					      rwork);
 
 	rtnl_lock();
-	if (p->perfect)
-		tcindex_free_perfect_hash(p);
+	kfree(p->perfect);
 	kfree(p);
 	rtnl_unlock();
 }
@@ -307,7 +304,7 @@ static int tcindex_alloc_perfect_hash(struct net *net, struct tcindex_data *cp)
 	int i, err = 0;
 
 	cp->perfect = kcalloc(cp->hash, sizeof(struct tcindex_filter_result),
-			      GFP_KERNEL | __GFP_NOWARN);
+			      GFP_KERNEL);
 	if (!cp->perfect)
 		return -ENOMEM;
 
@@ -332,7 +329,7 @@ tcindex_set_parms(struct net *net, struct tcf_proto *tp, unsigned long base,
 		  struct tcindex_filter_result *r, struct nlattr **tb,
 		  struct nlattr *est, bool ovr, struct netlink_ext_ack *extack)
 {
-	struct tcindex_filter_result new_filter_result;
+	struct tcindex_filter_result new_filter_result, *old_r = r;
 	struct tcindex_data *cp = NULL, *oldp;
 	struct tcindex_filter *f = NULL; /* make gcc behave */
 	struct tcf_result cr = {};
@@ -369,13 +366,9 @@ tcindex_set_parms(struct net *net, struct tcf_proto *tp, unsigned long base,
 	if (tb[TCA_TCINDEX_MASK])
 		cp->mask = nla_get_u16(tb[TCA_TCINDEX_MASK]);
 
-	if (tb[TCA_TCINDEX_SHIFT]) {
+	if (tb[TCA_TCINDEX_SHIFT])
 		cp->shift = nla_get_u32(tb[TCA_TCINDEX_SHIFT]);
-		if (cp->shift > 16) {
-			err = -EINVAL;
-			goto errout;
-		}
-	}
+
 	if (!cp->hash) {
 		/* Hash not specified, use perfect hash if the upper limit
 		 * of the hashing index is below the threshold.
@@ -401,7 +394,7 @@ tcindex_set_parms(struct net *net, struct tcf_proto *tp, unsigned long base,
 	err = tcindex_filter_result_init(&new_filter_result, cp, net);
 	if (err < 0)
 		goto errout_alloc;
-	if (r)
+	if (old_r)
 		cr = r->res;
 
 	err = -EBUSY;
@@ -476,6 +469,14 @@ tcindex_set_parms(struct net *net, struct tcf_proto *tp, unsigned long base,
 	if (tb[TCA_TCINDEX_CLASSID]) {
 		cr.classid = nla_get_u32(tb[TCA_TCINDEX_CLASSID]);
 		tcf_bind_filter(tp, &cr, base);
+	}
+
+	if (old_r && old_r != r) {
+		err = tcindex_filter_result_init(old_r, cp, net);
+		if (err < 0) {
+			kfree(f);
+			goto errout_alloc;
+		}
 	}
 
 	oldp = p;

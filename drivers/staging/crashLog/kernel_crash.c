@@ -93,7 +93,9 @@ void store_kernel_panic_smem(const char *desc) {
     struct pt_regs *regs = panic_pt_regs_ptr;
     int skip = 0;
 
+
 	store_crash_message("software version: %s\n", HMD_SW_VERSION);
+
 
     // store linux banner to RESET LOG zzw 20200528 add
     store_crash_message("linux banner: %s\n", linux_banner);

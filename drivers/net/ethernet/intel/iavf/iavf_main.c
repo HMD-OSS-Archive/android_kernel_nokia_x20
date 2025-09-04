@@ -143,30 +143,6 @@ enum iavf_status iavf_free_virt_mem_d(struct iavf_hw *hw,
 }
 
 /**
- * iavf_lock_timeout - try to set bit but give up after timeout
- * @adapter: board private structure
- * @bit: bit to set
- * @msecs: timeout in msecs
- *
- * Returns 0 on success, negative on failure
- **/
-static int iavf_lock_timeout(struct iavf_adapter *adapter,
-			     enum iavf_critical_section_t bit,
-			     unsigned int msecs)
-{
-	unsigned int wait, delay = 10;
-
-	for (wait = 0; wait < msecs; wait += delay) {
-		if (!test_and_set_bit(bit, &adapter->crit_section))
-			return 0;
-
-		msleep(delay);
-	}
-
-	return -1;
-}
-
-/**
  * iavf_schedule_reset - Set the flags and schedule a reset event
  * @adapter: board private structure
  **/
@@ -244,18 +220,21 @@ static void iavf_irq_disable(struct iavf_adapter *adapter)
 }
 
 /**
- * iavf_irq_enable_queues - Enable interrupt for all queues
+ * iavf_irq_enable_queues - Enable interrupt for specified queues
  * @adapter: board private structure
+ * @mask: bitmap of queues to enable
  **/
-void iavf_irq_enable_queues(struct iavf_adapter *adapter)
+void iavf_irq_enable_queues(struct iavf_adapter *adapter, u32 mask)
 {
 	struct iavf_hw *hw = &adapter->hw;
 	int i;
 
 	for (i = 1; i < adapter->num_msix_vectors; i++) {
-		wr32(hw, IAVF_VFINT_DYN_CTLN1(i - 1),
-		     IAVF_VFINT_DYN_CTLN1_INTENA_MASK |
-		     IAVF_VFINT_DYN_CTLN1_ITR_INDX_MASK);
+		if (mask & BIT(i - 1)) {
+			wr32(hw, IAVF_VFINT_DYN_CTLN1(i - 1),
+			     IAVF_VFINT_DYN_CTLN1_INTENA_MASK |
+			     IAVF_VFINT_DYN_CTLN1_ITR_INDX_MASK);
+		}
 	}
 }
 
@@ -269,7 +248,7 @@ void iavf_irq_enable(struct iavf_adapter *adapter, bool flush)
 	struct iavf_hw *hw = &adapter->hw;
 
 	iavf_misc_irq_enable(adapter);
-	iavf_irq_enable_queues(adapter);
+	iavf_irq_enable_queues(adapter, ~0);
 
 	if (flush)
 		iavf_flush(hw);
@@ -782,7 +761,6 @@ struct iavf_mac_filter *iavf_add_filter(struct iavf_adapter *adapter,
 
 		list_add_tail(&f->list, &adapter->mac_filter_list);
 		f->add = true;
-		f->is_new_mac = true;
 		adapter->aq_required |= IAVF_FLAG_AQ_ADD_MAC_FILTER;
 	} else {
 		f->remove = false;
@@ -1389,16 +1367,19 @@ static int iavf_alloc_q_vectors(struct iavf_adapter *adapter)
 static void iavf_free_q_vectors(struct iavf_adapter *adapter)
 {
 	int q_idx, num_q_vectors;
+	int napi_vectors;
 
 	if (!adapter->q_vectors)
 		return;
 
 	num_q_vectors = adapter->num_msix_vectors - NONQ_VECS;
+	napi_vectors = adapter->num_active_queues;
 
 	for (q_idx = 0; q_idx < num_q_vectors; q_idx++) {
 		struct iavf_q_vector *q_vector = &adapter->q_vectors[q_idx];
 
-		netif_napi_del(&q_vector->napi);
+		if (q_idx < napi_vectors)
+			netif_napi_del(&q_vector->napi);
 	}
 	kfree(adapter->q_vectors);
 	adapter->q_vectors = NULL;
@@ -1518,6 +1499,11 @@ static int iavf_reinit_interrupt_scheme(struct iavf_adapter *adapter)
 	set_bit(__IAVF_VSI_DOWN, adapter->vsi.state);
 
 	iavf_map_rings_to_vectors(adapter);
+
+	if (RSS_AQ(adapter))
+		adapter->aq_required |= IAVF_FLAG_AQ_CONFIGURE_RSS;
+	else
+		err = iavf_init_rss(adapter);
 err:
 	return err;
 }
@@ -1620,7 +1606,8 @@ static int iavf_process_aq_command(struct iavf_adapter *adapter)
 		iavf_set_promiscuous(adapter, FLAG_VF_MULTICAST_PROMISC);
 		return 0;
 	}
-	if ((adapter->aq_required & IAVF_FLAG_AQ_RELEASE_PROMISC) ||
+
+	if ((adapter->aq_required & IAVF_FLAG_AQ_RELEASE_PROMISC) &&
 	    (adapter->aq_required & IAVF_FLAG_AQ_RELEASE_ALLMULTI)) {
 		iavf_set_promiscuous(adapter, 0);
 		return 0;
@@ -1799,8 +1786,7 @@ static int iavf_init_get_resources(struct iavf_adapter *adapter)
 		goto err_alloc;
 	}
 
-	err = iavf_process_config(adapter);
-	if (err)
+	if (iavf_process_config(adapter))
 		goto err_alloc;
 	adapter->current_op = VIRTCHNL_OP_UNKNOWN;
 
@@ -1858,9 +1844,11 @@ static int iavf_init_get_resources(struct iavf_adapter *adapter)
 	netif_tx_stop_all_queues(netdev);
 	if (CLIENT_ALLOWED(adapter)) {
 		err = iavf_lan_add_device(adapter);
-		if (err)
+		if (err) {
+			rtnl_unlock();
 			dev_info(&pdev->dev, "Failed to add VF to client API service list: %d\n",
 				 err);
+		}
 	}
 	dev_info(&pdev->dev, "MAC address: %pM\n", adapter->hw.mac.addr);
 	if (netdev->features & NETIF_F_GRO)
@@ -1978,6 +1966,7 @@ static void iavf_watchdog_task(struct work_struct *work)
 		/* check for hw reset */
 	reg_val = rd32(hw, IAVF_VF_ARQLEN1) & IAVF_VF_ARQLEN1_ARQENABLE_MASK;
 	if (!reg_val) {
+		adapter->state = __IAVF_RESETTING;
 		adapter->flags |= IAVF_FLAG_RESET_PENDING;
 		adapter->aq_required = 0;
 		adapter->current_op = VIRTCHNL_OP_UNKNOWN;
@@ -2050,8 +2039,8 @@ static void iavf_disable_vf(struct iavf_adapter *adapter)
 
 	iavf_free_misc_irq(adapter);
 	iavf_reset_interrupt_capability(adapter);
-	iavf_free_q_vectors(adapter);
 	iavf_free_queues(adapter);
+	iavf_free_q_vectors(adapter);
 	memset(adapter->vf_res, 0, IAVF_VIRTCHNL_VF_RESOURCE_SIZE);
 	iavf_shutdown_adminq(&adapter->hw);
 	adapter->netdev->flags &= ~IFF_UP;
@@ -2093,10 +2082,6 @@ static void iavf_reset_task(struct work_struct *work)
 	if (test_bit(__IAVF_IN_REMOVE_TASK, &adapter->crit_section))
 		return;
 
-	if (iavf_lock_timeout(adapter, __IAVF_IN_CRITICAL_TASK, 200)) {
-		schedule_work(&adapter->reset_task);
-		return;
-	}
 	while (test_and_set_bit(__IAVF_IN_CLIENT_TASK,
 				&adapter->crit_section))
 		usleep_range(500, 1000);
@@ -2145,7 +2130,6 @@ static void iavf_reset_task(struct work_struct *work)
 	}
 
 	pci_set_master(adapter->pdev);
-	pci_restore_msi_state(adapter->pdev);
 
 	if (i == IAVF_RESET_WAIT_COUNT) {
 		dev_err(&adapter->pdev->dev, "Reset never finished (%x)\n",
@@ -2192,14 +2176,6 @@ continue_reset:
 
 	if (adapter->flags & IAVF_FLAG_REINIT_ITR_NEEDED) {
 		err = iavf_reinit_interrupt_scheme(adapter);
-		if (err)
-			goto reset_err;
-	}
-
-	if (RSS_AQ(adapter)) {
-		adapter->aq_required |= IAVF_FLAG_AQ_CONFIGURE_RSS;
-	} else {
-		err = iavf_init_rss(adapter);
 		if (err)
 			goto reset_err;
 	}
@@ -2312,8 +2288,6 @@ static void iavf_adminq_task(struct work_struct *work)
 	if (!event.msg_buf)
 		goto out;
 
-	if (iavf_lock_timeout(adapter, __IAVF_IN_CRITICAL_TASK, 200))
-		goto freedom;
 	do {
 		ret = iavf_clean_arq_element(hw, &event, &pending);
 		v_op = (enum virtchnl_ops)le32_to_cpu(event.desc.cookie_high);
@@ -2327,7 +2301,6 @@ static void iavf_adminq_task(struct work_struct *work)
 		if (pending != 0)
 			memset(event.msg_buf, 0, IAVF_MAX_AQ_BUF_SIZE);
 	} while (pending);
-	clear_bit(__IAVF_IN_CRITICAL_TASK, &adapter->crit_section);
 
 	if ((adapter->flags &
 	     (IAVF_FLAG_RESET_PENDING | IAVF_FLAG_RESET_NEEDED)) ||
@@ -2336,7 +2309,7 @@ static void iavf_adminq_task(struct work_struct *work)
 
 	/* check for error indications */
 	val = rd32(hw, hw->aq.arq.len);
-	if (val == 0xdeadbeef || val == 0xffffffff) /* device in reset */
+	if (val == 0xdeadbeef) /* indicates device in reset */
 		goto freedom;
 	oldval = val;
 	if (val & IAVF_VF_ARQLEN1_ARQVFE_MASK) {
@@ -2575,7 +2548,6 @@ static int iavf_validate_ch_config(struct iavf_adapter *adapter,
 				   struct tc_mqprio_qopt_offload *mqprio_qopt)
 {
 	u64 total_max_rate = 0;
-	u32 tx_rate_rem = 0;
 	int i, num_qps = 0;
 	u64 tx_rate = 0;
 	int ret = 0;
@@ -2590,40 +2562,17 @@ static int iavf_validate_ch_config(struct iavf_adapter *adapter,
 			return -EINVAL;
 		if (mqprio_qopt->min_rate[i]) {
 			dev_err(&adapter->pdev->dev,
-				"Invalid min tx rate (greater than 0) specified for TC%d\n",
-				i);
+				"Invalid min tx rate (greater than 0) specified\n");
 			return -EINVAL;
 		}
-
-		/* convert to Mbps */
+		/*convert to Mbps */
 		tx_rate = div_u64(mqprio_qopt->max_rate[i],
 				  IAVF_MBPS_DIVISOR);
-
-		if (mqprio_qopt->max_rate[i] &&
-		    tx_rate < IAVF_MBPS_QUANTA) {
-			dev_err(&adapter->pdev->dev,
-				"Invalid max tx rate for TC%d, minimum %dMbps\n",
-				i, IAVF_MBPS_QUANTA);
-			return -EINVAL;
-		}
-
-		(void)div_u64_rem(tx_rate, IAVF_MBPS_QUANTA, &tx_rate_rem);
-
-		if (tx_rate_rem != 0) {
-			dev_err(&adapter->pdev->dev,
-				"Invalid max tx rate for TC%d, not divisible by %d\n",
-				i, IAVF_MBPS_QUANTA);
-			return -EINVAL;
-		}
-
 		total_max_rate += tx_rate;
 		num_qps += mqprio_qopt->qopt.count[i];
 	}
-	if (num_qps > adapter->num_active_queues) {
-		dev_err(&adapter->pdev->dev,
-			"Cannot support requested number of queues\n");
+	if (num_qps > IAVF_MAX_REQ_QUEUES)
 		return -EINVAL;
-	}
 
 	ret = iavf_validate_tx_bandwidth(adapter, total_max_rate);
 	return ret;
@@ -3052,11 +3001,11 @@ static int iavf_configure_clsflower(struct iavf_adapter *adapter,
 	/* start out with flow type and eth type IPv4 to begin with */
 	filter->f.flow_type = VIRTCHNL_TCP_V4_FLOW;
 	err = iavf_parse_cls_flower(adapter, cls_flower, filter);
-	if (err)
+	if (err < 0)
 		goto err;
 
 	err = iavf_handle_tclass(adapter, tc, filter);
-	if (err)
+	if (err < 0)
 		goto err;
 
 	/* add filter to the list */
@@ -3128,6 +3077,9 @@ static int iavf_delete_clsflower(struct iavf_adapter *adapter,
 static int iavf_setup_tc_cls_flower(struct iavf_adapter *adapter,
 				    struct flow_cls_offload *cls_flower)
 {
+	if (cls_flower->common.chain_index)
+		return -EOPNOTSUPP;
+
 	switch (cls_flower->command) {
 	case FLOW_CLS_REPLACE:
 		return iavf_configure_clsflower(adapter, cls_flower);
@@ -3151,11 +3103,6 @@ static int iavf_setup_tc_cls_flower(struct iavf_adapter *adapter,
 static int iavf_setup_tc_block_cb(enum tc_setup_type type, void *type_data,
 				  void *cb_priv)
 {
-	struct iavf_adapter *adapter = cb_priv;
-
-	if (!tc_cls_can_offload_and_chain0(adapter->netdev, type_data))
-		return -EOPNOTSUPP;
-
 	switch (type) {
 	case TC_SETUP_CLSFLOWER:
 		return iavf_setup_tc_cls_flower(cb_priv, type_data);
@@ -3338,11 +3285,8 @@ static int iavf_change_mtu(struct net_device *netdev, int new_mtu)
 		iavf_notify_client_l2_params(&adapter->vsi);
 		adapter->flags |= IAVF_FLAG_SERVICE_CLIENT_REQUESTED;
 	}
-
-	if (netif_running(netdev)) {
-		adapter->flags |= IAVF_FLAG_RESET_NEEDED;
-		queue_work(iavf_wq, &adapter->reset_task);
-	}
+	adapter->flags |= IAVF_FLAG_RESET_NEEDED;
+	queue_work(iavf_wq, &adapter->reset_task);
 
 	return 0;
 }
@@ -3446,8 +3390,7 @@ static netdev_features_t iavf_fix_features(struct net_device *netdev,
 {
 	struct iavf_adapter *adapter = netdev_priv(netdev);
 
-	if (adapter->vf_res &&
-	    !(adapter->vf_res->vf_cap_flags & VIRTCHNL_VF_OFFLOAD_VLAN))
+	if (!(adapter->vf_res->vf_cap_flags & VIRTCHNL_VF_OFFLOAD_VLAN))
 		features &= ~(NETIF_F_HW_VLAN_CTAG_TX |
 			      NETIF_F_HW_VLAN_CTAG_RX |
 			      NETIF_F_HW_VLAN_CTAG_FILTER);
@@ -3652,10 +3595,6 @@ static void iavf_init_task(struct work_struct *work)
 						    init_task.work);
 	struct iavf_hw *hw = &adapter->hw;
 
-	if (iavf_lock_timeout(adapter, __IAVF_IN_CRITICAL_TASK, 5000)) {
-		dev_warn(&adapter->pdev->dev, "failed to set __IAVF_IN_CRITICAL_TASK in %s\n", __FUNCTION__);
-		return;
-	}
 	switch (adapter->state) {
 	case __IAVF_STARTUP:
 		if (iavf_startup(adapter) < 0)
@@ -3668,14 +3607,14 @@ static void iavf_init_task(struct work_struct *work)
 	case __IAVF_INIT_GET_RESOURCES:
 		if (iavf_init_get_resources(adapter) < 0)
 			goto init_failed;
-		goto out;
+		return;
 	default:
 		goto init_failed;
 	}
 
 	queue_delayed_work(iavf_wq, &adapter->init_task,
 			   msecs_to_jiffies(30));
-	goto out;
+	return;
 init_failed:
 	if (++adapter->aq_wait_count > IAVF_AQ_MAX_ERR) {
 		dev_err(&adapter->pdev->dev,
@@ -3684,11 +3623,9 @@ init_failed:
 		iavf_shutdown_adminq(hw);
 		adapter->state = __IAVF_STARTUP;
 		queue_delayed_work(iavf_wq, &adapter->init_task, HZ * 5);
-		goto out;
+		return;
 	}
 	queue_delayed_work(iavf_wq, &adapter->init_task, HZ);
-out:
-	clear_bit(__IAVF_IN_CRITICAL_TASK, &adapter->crit_section);
 }
 
 /**
@@ -3705,12 +3642,9 @@ static void iavf_shutdown(struct pci_dev *pdev)
 	if (netif_running(netdev))
 		iavf_close(netdev);
 
-	if (iavf_lock_timeout(adapter, __IAVF_IN_CRITICAL_TASK, 5000))
-		dev_warn(&adapter->pdev->dev, "failed to set __IAVF_IN_CRITICAL_TASK in %s\n", __FUNCTION__);
 	/* Prevent the watchdog from running. */
 	adapter->state = __IAVF_REMOVE;
 	adapter->aq_required = 0;
-	clear_bit(__IAVF_IN_CRITICAL_TASK, &adapter->crit_section);
 
 #ifdef CONFIG_PM
 	pci_save_state(pdev);
@@ -3830,7 +3764,6 @@ static int iavf_probe(struct pci_dev *pdev, const struct pci_device_id *ent)
 err_ioremap:
 	free_netdev(netdev);
 err_alloc_etherdev:
-	pci_disable_pcie_error_reporting(pdev);
 	pci_release_regions(pdev);
 err_pci_reg:
 err_dma:
@@ -3838,6 +3771,7 @@ err_dma:
 	return err;
 }
 
+#ifdef CONFIG_PM
 /**
  * iavf_suspend - Power management suspend routine
  * @pdev: PCI device information struct
@@ -3845,10 +3779,11 @@ err_dma:
  *
  * Called when the system (VM) is entering sleep/suspend.
  **/
-static int __maybe_unused iavf_suspend(struct device *dev_d)
+static int iavf_suspend(struct pci_dev *pdev, pm_message_t state)
 {
-	struct net_device *netdev = dev_get_drvdata(dev_d);
+	struct net_device *netdev = pci_get_drvdata(pdev);
 	struct iavf_adapter *adapter = netdev_priv(netdev);
+	int retval = 0;
 
 	netif_device_detach(netdev);
 
@@ -3866,6 +3801,12 @@ static int __maybe_unused iavf_suspend(struct device *dev_d)
 
 	clear_bit(__IAVF_IN_CRITICAL_TASK, &adapter->crit_section);
 
+	retval = pci_save_state(pdev);
+	if (retval)
+		return retval;
+
+	pci_disable_device(pdev);
+
 	return 0;
 }
 
@@ -3875,13 +3816,24 @@ static int __maybe_unused iavf_suspend(struct device *dev_d)
  *
  * Called when the system (VM) is resumed from sleep/suspend.
  **/
-static int __maybe_unused iavf_resume(struct device *dev_d)
+static int iavf_resume(struct pci_dev *pdev)
 {
-	struct pci_dev *pdev = to_pci_dev(dev_d);
-	struct net_device *netdev = pci_get_drvdata(pdev);
-	struct iavf_adapter *adapter = netdev_priv(netdev);
+	struct iavf_adapter *adapter = pci_get_drvdata(pdev);
+	struct net_device *netdev = adapter->netdev;
 	u32 err;
 
+	pci_set_power_state(pdev, PCI_D0);
+	pci_restore_state(pdev);
+	/* pci_restore_state clears dev->state_saved so call
+	 * pci_save_state to restore it.
+	 */
+	pci_save_state(pdev);
+
+	err = pci_enable_device_mem(pdev);
+	if (err) {
+		dev_err(&pdev->dev, "Cannot enable PCI device from suspend.\n");
+		return err;
+	}
 	pci_set_master(pdev);
 
 	rtnl_lock();
@@ -3905,6 +3857,7 @@ static int __maybe_unused iavf_resume(struct device *dev_d)
 	return err;
 }
 
+#endif /* CONFIG_PM */
 /**
  * iavf_remove - Device Removal Routine
  * @pdev: PCI device information struct
@@ -3939,6 +3892,10 @@ static void iavf_remove(struct pci_dev *pdev)
 				 err);
 	}
 
+	/* Shut down all the garbage mashers on the detention level */
+	adapter->state = __IAVF_REMOVE;
+	adapter->aq_required = 0;
+	adapter->flags &= ~IAVF_FLAG_REINIT_ITR_NEEDED;
 	iavf_request_reset(adapter);
 	msleep(50);
 	/* If the FW isn't responding, kick it once, but only once. */
@@ -3946,13 +3903,6 @@ static void iavf_remove(struct pci_dev *pdev)
 		iavf_request_reset(adapter);
 		msleep(50);
 	}
-	if (iavf_lock_timeout(adapter, __IAVF_IN_CRITICAL_TASK, 5000))
-		dev_warn(&adapter->pdev->dev, "failed to set __IAVF_IN_CRITICAL_TASK in %s\n", __FUNCTION__);
-
-	/* Shut down all the garbage mashers on the detention level */
-	adapter->state = __IAVF_REMOVE;
-	adapter->aq_required = 0;
-	adapter->flags &= ~IAVF_FLAG_REINIT_ITR_NEEDED;
 	iavf_free_all_tx_resources(adapter);
 	iavf_free_all_rx_resources(adapter);
 	iavf_misc_irq_disable(adapter);
@@ -3975,6 +3925,8 @@ static void iavf_remove(struct pci_dev *pdev)
 
 	iounmap(hw->hw_addr);
 	pci_release_regions(pdev);
+	iavf_free_all_tx_resources(adapter);
+	iavf_free_all_rx_resources(adapter);
 	iavf_free_queues(adapter);
 	kfree(adapter->vf_res);
 	spin_lock_bh(&adapter->mac_vlan_list_lock);
@@ -4007,15 +3959,16 @@ static void iavf_remove(struct pci_dev *pdev)
 	pci_disable_device(pdev);
 }
 
-static SIMPLE_DEV_PM_OPS(iavf_pm_ops, iavf_suspend, iavf_resume);
-
 static struct pci_driver iavf_driver = {
-	.name      = iavf_driver_name,
-	.id_table  = iavf_pci_tbl,
-	.probe     = iavf_probe,
-	.remove    = iavf_remove,
-	.driver.pm = &iavf_pm_ops,
-	.shutdown  = iavf_shutdown,
+	.name     = iavf_driver_name,
+	.id_table = iavf_pci_tbl,
+	.probe    = iavf_probe,
+	.remove   = iavf_remove,
+#ifdef CONFIG_PM
+	.suspend  = iavf_suspend,
+	.resume   = iavf_resume,
+#endif
+	.shutdown = iavf_shutdown,
 };
 
 /**

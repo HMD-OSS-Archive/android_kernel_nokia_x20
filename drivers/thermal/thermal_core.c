@@ -46,7 +46,9 @@ static DEFINE_MUTEX(thermal_governor_lock);
 static DEFINE_MUTEX(poweroff_lock);
 
 static atomic_t in_suspend;
+#ifndef DUAL_85_VERSION
 static bool power_off_triggered;
+#endif
 
 static struct thermal_governor *def_governor;
 
@@ -229,14 +231,15 @@ int thermal_build_list_of_policies(char *buf)
 {
 	struct thermal_governor *pos;
 	ssize_t count = 0;
+	ssize_t size = PAGE_SIZE;
 
 	mutex_lock(&thermal_governor_lock);
 
 	list_for_each_entry(pos, &thermal_governor_list, governor_list) {
-		count += scnprintf(buf + count, PAGE_SIZE - count, "%s ",
-				   pos->name);
+		size = PAGE_SIZE - count;
+		count += scnprintf(buf + count, size, "%s ", pos->name);
 	}
-	count += scnprintf(buf + count, PAGE_SIZE - count, "\n");
+	count += scnprintf(buf + count, size, "\n");
 
 	mutex_unlock(&thermal_governor_lock);
 
@@ -440,6 +443,7 @@ static void handle_non_critical_trips(struct thermal_zone_device *tz, int trip)
 		       def_governor->throttle(tz, trip);
 }
 
+#ifndef DUAL_85_VERSION
 /**
  * thermal_emergency_poweroff_func - emergency poweroff work after a known delay
  * @work: work_struct associated with the emergency poweroff function
@@ -487,6 +491,7 @@ static void thermal_emergency_poweroff(void)
 	schedule_delayed_work(&thermal_emergency_poweroff_work,
 			      msecs_to_jiffies(poweroff_delay_ms));
 }
+#endif
 
 static void handle_critical_trips(struct thermal_zone_device *tz,
 				  int trip, enum thermal_trip_type trip_type)
@@ -507,6 +512,7 @@ static void handle_critical_trips(struct thermal_zone_device *tz,
 		tz->ops->notify(tz, trip, trip_type);
 
 	if (trip_type == THERMAL_TRIP_CRITICAL) {
+#ifndef DUAL_85_VERSION
 		dev_emerg(&tz->device,
 			  "critical temperature reached (%d C), shutting down\n",
 			  tz->temperature / 1000);
@@ -521,6 +527,7 @@ static void handle_critical_trips(struct thermal_zone_device *tz,
 			power_off_triggered = true;
 		}
 		mutex_unlock(&poweroff_lock);
+#endif
 	}
 }
 
@@ -552,8 +559,6 @@ static void thermal_zone_device_init(struct thermal_zone_device *tz)
 {
 	struct thermal_instance *pos;
 	tz->temperature = THERMAL_TEMP_INVALID;
-	tz->prev_low_trip = -INT_MAX;
-	tz->prev_high_trip = INT_MAX;
 	list_for_each_entry(pos, &tz->thermal_instances, tz_node)
 		pos->initialized = false;
 }
@@ -1537,7 +1542,7 @@ free_tz:
 EXPORT_SYMBOL_GPL(thermal_zone_device_register);
 
 /**
- * thermal_zone_device_unregister - removes the registered thermal zone device
+ * thermal_device_unregister - removes the registered thermal zone device
  * @tz: the thermal zone device to remove
  */
 void thermal_zone_device_unregister(struct thermal_zone_device *tz)

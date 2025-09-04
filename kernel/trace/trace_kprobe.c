@@ -220,9 +220,9 @@ bool trace_kprobe_on_func_entry(struct trace_event_call *call)
 {
 	struct trace_kprobe *tk = trace_kprobe_primary_from_call(call);
 
-	return tk ? (kprobe_on_func_entry(tk->rp.kp.addr,
+	return tk ? kprobe_on_func_entry(tk->rp.kp.addr,
 			tk->rp.kp.addr ? NULL : tk->rp.kp.symbol_name,
-			tk->rp.kp.addr ? 0 : tk->rp.kp.offset) == 0) : false;
+			tk->rp.kp.addr ? 0 : tk->rp.kp.offset) : false;
 }
 
 bool trace_kprobe_error_injectable(struct trace_event_call *call)
@@ -430,10 +430,10 @@ static int disable_trace_kprobe(struct trace_event_call *call,
 		 */
 		trace_probe_remove_file(tp, file);
 
-	return 1;
+	return 0;
 }
 
-#if defined(CONFIG_DYNAMIC_FTRACE) && \
+#if defined(CONFIG_KPROBES_ON_FTRACE) && \
 	!defined(CONFIG_KPROBE_EVENTS_ON_NOTRACE)
 static bool __within_notrace_func(unsigned long addr)
 {
@@ -646,11 +646,7 @@ static int register_trace_kprobe(struct trace_kprobe *tk)
 	/* Register new event */
 	ret = register_kprobe_event(tk);
 	if (ret) {
-		if (ret == -EEXIST) {
-			trace_probe_log_set_index(0);
-			trace_probe_log_err(0, EVENT_EXIST);
-		} else
-			pr_warn("Failed to register probe event(%d)\n", ret);
+		pr_warn("Failed to register probe event(%d)\n", ret);
 		goto end;
 	}
 
@@ -815,11 +811,9 @@ static int trace_kprobe_create(int argc, const char *argv[])
 			trace_probe_log_err(0, BAD_PROBE_ADDR);
 			goto parse_error;
 		}
-		ret = kprobe_on_func_entry(NULL, symbol, offset);
-		if (ret == 0)
+		if (kprobe_on_func_entry(NULL, symbol, offset))
 			flags |= TPARG_FL_FENTRY;
-		/* Defer the ENOENT case until register kprobe */
-		if (ret == -EINVAL && is_return) {
+		if (offset && is_return && !(flags & TPARG_FL_FENTRY)) {
 			trace_probe_log_err(0, BAD_RETPROBE);
 			goto parse_error;
 		}
@@ -999,18 +993,15 @@ static int probes_profile_seq_show(struct seq_file *m, void *v)
 {
 	struct dyn_event *ev = v;
 	struct trace_kprobe *tk;
-	unsigned long nmissed;
 
 	if (!is_trace_kprobe(ev))
 		return 0;
 
 	tk = to_trace_kprobe(ev);
-	nmissed = trace_kprobe_is_return(tk) ?
-		tk->rp.kp.nmissed + tk->rp.nmissed : tk->rp.kp.nmissed;
 	seq_printf(m, "  %-44s %15lu %15lu\n",
 		   trace_probe_name(&tk->tp),
 		   trace_kprobe_nhit(tk),
-		   nmissed);
+		   tk->rp.kp.nmissed);
 
 	return 0;
 }
@@ -1134,10 +1125,9 @@ probe_mem_read_user(void *dest, void *src, size_t size)
 
 /* Note that we don't verify it, since the code does not come from user space */
 static int
-process_fetch_insn(struct fetch_insn *code, void *rec, void *dest,
+process_fetch_insn(struct fetch_insn *code, struct pt_regs *regs, void *dest,
 		   void *base)
 {
-	struct pt_regs *regs = rec;
 	unsigned long val;
 
 retry:

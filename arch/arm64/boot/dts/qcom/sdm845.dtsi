@@ -715,7 +715,6 @@
 			#clock-cells = <1>;
 			#reset-cells = <1>;
 			#power-domain-cells = <1>;
-			power-domains = <&rpmhpd SDM845_CX>;
 		};
 
 		qfprom@784000 {
@@ -3302,12 +3301,6 @@
 			reg-names = "cc", "qdsp6ss";
 			#clock-cells = <1>;
 			status = "disabled";
-		};
-
-		watchdog@17980000 {
-			compatible = "qcom,apss-wdt-sdm845", "qcom,kpss-wdt";
-			reg = <0 0x17980000 0 0x1000>;
-			clocks = <&sleep_clk>;
 		};
 
 		apss_shared: mailbox@17990000 {

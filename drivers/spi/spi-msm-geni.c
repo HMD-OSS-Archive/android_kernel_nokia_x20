@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
- * Copyright (c) 2017-2021, The Linux Foundation. All rights reserved.
- * Copyright (c) 2022 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2017-2020, The Linux Foundation. All rights reserved.
  */
 
 
@@ -21,7 +20,6 @@
 #include <linux/spi/spi.h>
 #include <linux/spi/spi-msm-geni.h>
 #include <linux/pinctrl/consumer.h>
-#include <soc/qcom/boot_stats.h>
 
 #define SPI_NUM_CHIPSELECT	(4)
 #define SPI_XFER_TIMEOUT_MS	(250)
@@ -163,13 +161,11 @@ struct spi_geni_master {
 	int num_tx_eot;
 	int num_rx_eot;
 	int num_xfers;
-	atomic_t is_irq_enable;
 	void *ipc;
 	bool gsi_mode; /* GSI Mode */
 	bool shared_ee; /* Dual EE use case */
 	bool shared_se; /* True Multi EE use case */
 	bool is_le_vm;	/* LE VM usecase */
-	bool is_la_vm;	/* LA VM property */
 	bool dis_autosuspend;
 	bool cmd_done;
 	bool set_miso_sampling;
@@ -183,7 +179,6 @@ struct spi_geni_master {
 };
 
 static void spi_slv_setup(struct spi_geni_master *mas);
-static void spi_geni_irq_enable(struct spi_geni_master *mas, bool irq_flag);
 
 static ssize_t spi_slave_state_show(struct device *dev,
 		struct device_attribute *attr, char *buf)
@@ -364,8 +359,10 @@ static int setup_fifo_params(struct spi_device *spi_slv,
 	if (mode & SPI_CPOL)
 		cpol |= CPOL;
 
-	if (mode & SPI_CPHA)
-		cpha |= CPHA;
+	if (!spi->slave) {
+		if (mode & SPI_CPHA)
+			cpha |= CPHA;
+	}
 
 	/* SPI slave supports only mode 1, log unsuppoted mode and exit */
 	if (spi->slave && !(cpol == 0 && cpha == 1)) {
@@ -536,7 +533,7 @@ static struct msm_gpi_tre *setup_go_tre(int cmd, int cs, int rx_len, int flags,
 	if (cmd == SPI_RX_ONLY) {
 		eot = 0;
 		chain = 0;
-		eob = 1;	/* GO TRE on TX: processing needed */
+		eob = 0;
 	} else {
 		eot = 0;
 		chain = 1;
@@ -1006,22 +1003,12 @@ static int spi_geni_prepare_message(struct spi_master *spi,
 
 	if (mas->shared_ee) {
 		if (mas->setup) {
-			/* Client to respect system suspend */
-			if (!pm_runtime_enabled(mas->dev)) {
-				GENI_SE_ERR(mas->ipc, false, NULL,
-					"%s: System suspended\n", __func__);
-				return -EACCES;
-			}
-
 			ret = pm_runtime_get_sync(mas->dev);
 			if (ret < 0) {
 				dev_err(mas->dev,
 					"%s:pm_runtime_get_sync failed %d\n",
 							__func__, ret);
-				WARN_ON_ONCE(1);
 				pm_runtime_put_noidle(mas->dev);
-				/* Set device in suspended since resume failed */
-				pm_runtime_set_suspended(mas->dev);
 				goto exit_prepare_message;
 			}
 			ret = 0;
@@ -1045,25 +1032,6 @@ static int spi_geni_prepare_message(struct spi_master *spi,
 					"%s failed: %d\n", __func__, ret);
 				return ret;
 			}
-		}
-	}
-
-	if (pm_runtime_status_suspended(mas->dev) && !mas->is_le_vm) {
-		if (!pm_runtime_enabled(mas->dev)) {
-			GENI_SE_ERR(mas->ipc, false, NULL,
-				"%s: System suspended\n", __func__);
-			return -EACCES;
-		}
-
-		ret = pm_runtime_get_sync(mas->dev);
-		if (ret < 0) {
-			dev_err(mas->dev,
-			"%s:pm_runtime_get_sync failed %d\n", __func__, ret);
-			WARN_ON_ONCE(1);
-			pm_runtime_put_noidle(mas->dev);
-			/* Set device in suspended since resume failed */
-			pm_runtime_set_suspended(mas->dev);
-			return ret;
 		}
 	}
 
@@ -1109,8 +1077,7 @@ static int spi_geni_unprepare_message(struct spi_master *spi_mas,
 				GENI_SE_ERR(mas->ipc, false, NULL,
 					"suspend usage count mismatch:%d",
 								count);
-		} else if (!pm_runtime_status_suspended(mas->dev) &&
-				pm_runtime_enabled(mas->dev)) {
+		} else if (!pm_runtime_suspended(mas->dev)) {
 			pm_runtime_mark_last_busy(mas->dev);
 			pm_runtime_put_autosuspend(mas->dev);
 		}
@@ -1342,25 +1309,13 @@ static int spi_geni_prepare_transfer_hardware(struct spi_master *spi)
 	if (mas->is_le_vm)
 		return 0;
 
-	/* Client to respect system suspend */
-	if (!pm_runtime_enabled(mas->dev)) {
-		GENI_SE_ERR(mas->ipc, false, NULL,
-			"%s: System suspended\n", __func__);
-		return -EACCES;
-	}
-
 	if (mas->gsi_mode && !mas->shared_ee) {
 		struct se_geni_rsc *rsc;
 		int ret = 0;
 
-		if (!mas->is_la_vm) {
-			/* Do this only for non TVM LA usecase */
-			/* May not be needed here, but maintain parity */
-			rsc = &mas->spi_rsc;
-			ret = pinctrl_select_state(rsc->geni_pinctrl,
-						rsc->geni_gpio_active);
-		}
-
+		rsc = &mas->spi_rsc;
+		ret = pinctrl_select_state(rsc->geni_pinctrl,
+					rsc->geni_gpio_active);
 		if (ret)
 			GENI_SE_ERR(mas->ipc, false, NULL,
 			"%s: Error %d pinctrl_select_state\n", __func__, ret);
@@ -1372,10 +1327,7 @@ static int spi_geni_prepare_transfer_hardware(struct spi_master *spi)
 			dev_err(mas->dev,
 				"%s:pm_runtime_get_sync failed %d\n",
 							__func__, ret);
-			WARN_ON_ONCE(1);
 			pm_runtime_put_noidle(mas->dev);
-			/* Set device in suspended since resume failed */
-			pm_runtime_set_suspended(mas->dev);
 			return ret;
 		}
 
@@ -1412,13 +1364,9 @@ static int spi_geni_unprepare_transfer_hardware(struct spi_master *spi)
 		struct se_geni_rsc *rsc;
 		int ret = 0;
 
-		if (!mas->is_la_vm) {
-			/* Do this only for non TVM LA usecase */
-			rsc = &mas->spi_rsc;
-			ret = pinctrl_select_state(rsc->geni_pinctrl,
+		rsc = &mas->spi_rsc;
+		ret = pinctrl_select_state(rsc->geni_pinctrl,
 						rsc->geni_gpio_sleep);
-		}
-
 		if (ret)
 			GENI_SE_ERR(mas->ipc, false, NULL,
 			"%s: Error %d pinctrl_select_state\n", __func__, ret);
@@ -1430,8 +1378,7 @@ static int spi_geni_unprepare_transfer_hardware(struct spi_master *spi)
 		if (count < 0)
 			GENI_SE_ERR(mas->ipc, false, NULL,
 				"suspend usage count mismatch:%d", count);
-	} else if (!pm_runtime_status_suspended(mas->dev) &&
-			pm_runtime_enabled(mas->dev)) {
+	} else {
 		pm_runtime_mark_last_busy(mas->dev);
 		pm_runtime_put_autosuspend(mas->dev);
 	}
@@ -1516,9 +1463,6 @@ static int setup_fifo_xfer(struct spi_transfer *xfer,
 	mas->cur_xfer_mode = SE_DMA;
 	if (mas->disable_dma || trans_len <= fifo_size)
 		mas->cur_xfer_mode = FIFO_MODE;
-
-	if (spi->slave)
-		mas->cur_xfer_mode = SE_DMA;
 	geni_se_select_mode(mas->base, mas->cur_xfer_mode);
 
 	if (!spi->slave)
@@ -1660,17 +1604,6 @@ static int spi_geni_transfer_one(struct spi_master *spi,
 			DIV_ROUND_UP(xfer->speed_hz, MSEC_PER_SEC)));
 	GENI_SE_DBG(mas->ipc, false, mas->dev,
 			"current xfer_timeout:%lu ms.\n", xfer_timeout);
-
-	/* Double check PM status, client might have not taken wakelock and
-	 * continue to queue more transfers. Post auto-suspend, system suspend
-	 * can keep driver to forced suspend, hence it's client's responsibility
-	 * to not allow system suspend to trigger.
-	 */
-	if (pm_runtime_status_suspended(mas->dev)) {
-		GENI_SE_ERR(mas->ipc, true, mas->dev,
-			"%s: device is PM suspended\n", __func__);
-		return -EACCES;
-	}
 
 	if (mas->cur_xfer_mode != GSI_DMA) {
 		reinit_completion(&mas->xfer_done);
@@ -1961,7 +1894,6 @@ static int spi_geni_probe(struct platform_device *pdev)
 	struct platform_device *wrapper_pdev;
 	struct device_node *wrapper_ph_node;
 	bool rt_pri, slave_en;
-	char boot_marker[40];
 
 	spi = spi_alloc_master(&pdev->dev, sizeof(struct spi_geni_master));
 	if (!spi) {
@@ -1969,10 +1901,6 @@ static int spi_geni_probe(struct platform_device *pdev)
 		dev_err(&pdev->dev, "Failed to alloc spi struct\n");
 		goto spi_geni_probe_err;
 	}
-
-	snprintf(boot_marker, sizeof(boot_marker),
-			"M - DRIVER GENI_SPI Init");
-	place_marker(boot_marker);
 
 	platform_set_drvdata(pdev, spi);
 	geni_mas = spi_master_get_devdata(spi);
@@ -2000,12 +1928,6 @@ static int spi_geni_probe(struct platform_device *pdev)
 		dev_info(&pdev->dev, "LE-VM usecase\n");
 	}
 
-	if (of_property_read_bool(pdev->dev.of_node, "qcom,la-vm")) {
-		geni_mas->is_la_vm = true;
-		dev_info(&pdev->dev, "LA-VM usecase\n");
-	}
-
-	geni_mas->spi_rsc.wrapper_dev = &wrapper_pdev->dev;
 	/*
 	 * For LE, clocks, gpio and icb voting will be provided by
 	 * by LA. The SPI operates in GSI mode only for LE usecase,
@@ -2013,6 +1935,7 @@ static int spi_geni_probe(struct platform_device *pdev)
 	 * in SPI LE dt.
 	 */
 	if (!geni_mas->is_le_vm) {
+		geni_mas->spi_rsc.wrapper_dev = &wrapper_pdev->dev;
 		ret = geni_se_resources_init(rsc, SPI_CORE2X_VOTE,
 					(DEFAULT_SE_CLK * DEFAULT_BUS_WIDTH));
 		if (ret) {
@@ -2080,7 +2003,6 @@ static int spi_geni_probe(struct platform_device *pdev)
 			goto spi_geni_probe_unmap;
 		}
 
-		irq_set_status_flags(geni_mas->irq, IRQ_NOAUTOEN);
 		ret = devm_request_irq(&pdev->dev, geni_mas->irq,
 			geni_spi_irq, IRQF_TRIGGER_HIGH, "spi_geni", geni_mas);
 		if (ret) {
@@ -2089,8 +2011,6 @@ static int spi_geni_probe(struct platform_device *pdev)
 			goto spi_geni_probe_unmap;
 		}
 	}
-
-	atomic_set(&geni_mas->is_irq_enable, 0);
 
 	ret = dma_set_mask_and_coherent(&pdev->dev, DMA_BIT_MASK(64));
 	if (ret) {
@@ -2201,16 +2121,10 @@ static int spi_geni_probe(struct platform_device *pdev)
 	}
 	ret = sysfs_create_file(&(geni_mas->dev->kobj),
 			&dev_attr_spi_slave_state.attr);
-
-	snprintf(boot_marker, sizeof(boot_marker),
-			"M - DRIVER GENI_SPI_%d Ready", spi->bus_num);
-	place_marker(boot_marker);
-	dev_info(&pdev->dev, "%s: completed\n", __func__);
 	return ret;
 spi_geni_probe_unmap:
 	devm_iounmap(&pdev->dev, geni_mas->base);
 spi_geni_probe_err:
-	dev_info(&pdev->dev, "%s: ret:%d\n", __func__, ret);
 	spi_master_put(spi);
 	return ret;
 }
@@ -2235,13 +2149,12 @@ static int spi_geni_runtime_suspend(struct device *dev)
 	struct spi_master *spi = get_spi_master(dev);
 	struct spi_geni_master *geni_mas = spi_master_get_devdata(spi);
 
+	disable_irq(geni_mas->irq);
 	if (geni_mas->is_le_vm) {
 		spi_geni_unlock_bus(spi);
 		return 0;
 	}
 
-	spi_geni_irq_enable(geni_mas, false);
-	GENI_SE_DBG(geni_mas->ipc, false, NULL, "%s:\n", __func__);
 	/* Do not unconfigure the GPIOs for a shared_se usecase */
 	if (geni_mas->shared_ee && !geni_mas->shared_se)
 		goto exit_rt_suspend;
@@ -2285,8 +2198,6 @@ static int spi_geni_runtime_resume(struct device *dev)
 		return ret;
 	}
 
-	GENI_SE_DBG(geni_mas->ipc, false, NULL, "%s:\n", __func__);
-
 	if (geni_mas->shared_ee)
 		goto exit_rt_resume;
 
@@ -2300,7 +2211,7 @@ static int spi_geni_runtime_resume(struct device *dev)
 
 exit_rt_resume:
 	ret = se_geni_resources_on(&geni_mas->spi_rsc);
-	spi_geni_irq_enable(geni_mas, true);
+	enable_irq(geni_mas->irq);
 	return ret;
 }
 
@@ -2312,17 +2223,27 @@ static int spi_geni_resume(struct device *dev)
 static int spi_geni_suspend(struct device *dev)
 {
 	int ret = 0;
-	struct spi_master *spi = get_spi_master(dev);
-	struct spi_geni_master *geni_mas = spi_master_get_devdata(spi);
 
 	if (!pm_runtime_status_suspended(dev)) {
-		GENI_SE_ERR(geni_mas->ipc, true, dev,
-			":%s: runtime PM is active\n", __func__);
-		ret = -EBUSY;
-		return ret;
-	}
+		struct spi_master *spi = get_spi_master(dev);
+		struct spi_geni_master *geni_mas = spi_master_get_devdata(spi);
 
-	GENI_SE_ERR(geni_mas->ipc, true, dev, ":%s: End\n", __func__);
+		if (list_empty(&spi->queue) && !spi->cur_msg) {
+			GENI_SE_ERR(geni_mas->ipc, true, dev,
+					"%s: Force suspend", __func__);
+			ret = spi_geni_runtime_suspend(dev);
+			if (ret) {
+				GENI_SE_ERR(geni_mas->ipc, true, dev,
+					"Force suspend Failed:%d", ret);
+			} else {
+				pm_runtime_disable(dev);
+				pm_runtime_set_suspended(dev);
+				pm_runtime_enable(dev);
+			}
+		} else {
+			ret = -EBUSY;
+		}
+	}
 	return ret;
 }
 #else
@@ -2346,41 +2267,6 @@ static int spi_geni_suspend(struct device *dev)
 	return 0;
 }
 #endif
-
-/**
- * spi_geni_irq_enable() - Enable or Disable irq.
- * @mas: Pointer to spi_geni_master structure.
- * @irq_flag: irq flag which indicates irq enable
- *            or disable
- *            irq_flag - false - irq disable
- *            irq_flag - true  - irq enable.
- *
- * This function is used to enable or disable irq.
- * Based on irq_flag the enabling or disabling of
- * irq will be done. Enable if irq_flag is true,
- * disable if irq_flag is false.
- * Return: None.
- */
-static void spi_geni_irq_enable(struct spi_geni_master *mas, bool irq_flag)
-{
-	if (irq_flag) {
-		if (!(atomic_read(&mas->is_irq_enable))) {
-			enable_irq(mas->irq);
-			atomic_set(&mas->is_irq_enable, 1);
-		} else {
-			GENI_SE_DBG(mas->ipc, true, mas->dev,
-				    "%s: irq already enabled\n", __func__);
-		}
-	} else {
-		if (atomic_read(&mas->is_irq_enable)) {
-			disable_irq(mas->irq);
-			atomic_set(&mas->is_irq_enable, 0);
-		} else {
-			GENI_SE_DBG(mas->ipc, true, mas->dev,
-				    "%s: irq already disabled\n", __func__);
-		}
-	}
-}
 
 static const struct dev_pm_ops spi_geni_pm_ops = {
 	SET_RUNTIME_PM_OPS(spi_geni_runtime_suspend,

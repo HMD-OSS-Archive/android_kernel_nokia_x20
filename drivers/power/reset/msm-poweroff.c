@@ -52,7 +52,9 @@ static void __iomem *msm_ps_hold;
 static phys_addr_t tcsr_boot_misc_detect;
 static struct nvmem_cell *nvmem_cell;
 #if 0
+
 extern char *saved_command_line;
+
 #endif
 
 
@@ -61,11 +63,13 @@ extern char *saved_command_line;
  * There is no API from TZ to re-enable the registers.
  * So the SDI cannot be re-enabled when it already by-passed.
  */
+
 #ifdef HMD_RAMDUMP_ENABLE
 static int download_mode = 1;
 #else
 static int download_mode = 0;
 #endif
+
 static struct kobject dload_kobj;
 
 static int in_panic;
@@ -409,8 +413,10 @@ static void msm_restart_prepare(const char *cmd)
 	bool need_warm_reset = false;
 	u8 reason = PON_RESTART_REASON_UNKNOWN;
 	#if 0
+
 	char * ptr=NULL;
 	char val_buf[64];
+
 	#endif
 	
 	/* Write download mode flags if we're panic'ing
@@ -418,6 +424,7 @@ static void msm_restart_prepare(const char *cmd)
 	 * Kill download mode if master-kill switch is set
 	 */
 #if 0
+
 	ptr = strstr(saved_command_line, "androidboot.kedumpflag=");
 	if(ptr)
 		sscanf(ptr,"androidboot.kedumpflag=%s", val_buf);
@@ -434,6 +441,7 @@ static void msm_restart_prepare(const char *cmd)
 	    restart_mode = RESTART_DLOAD;
 		
 	}
+
 #endif
 
 	if (cmd != NULL && !strcmp(cmd, "qcom_dload"))

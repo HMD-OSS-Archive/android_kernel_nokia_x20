@@ -16,9 +16,9 @@ static int walk_pte_range(pmd_t *pmd, unsigned long addr, unsigned long end,
 		err = ops->pte_entry(pte, addr, addr + PAGE_SIZE, walk);
 		if (err)
 		       break;
-		if (addr >= end - PAGE_SIZE)
-			break;
 		addr += PAGE_SIZE;
+		if (addr == end)
+			break;
 		pte++;
 	}
 
@@ -38,7 +38,7 @@ static int walk_pmd_range(pud_t *pud, unsigned long addr, unsigned long end,
 	do {
 again:
 		next = pmd_addr_end(addr, end);
-		if (pmd_none(*pmd)) {
+		if (pmd_none(*pmd) || !walk->vma) {
 			if (ops->pte_hole)
 				err = ops->pte_hole(addr, next, walk);
 			if (err)
@@ -84,7 +84,7 @@ static int walk_pud_range(p4d_t *p4d, unsigned long addr, unsigned long end,
 	do {
  again:
 		next = pud_addr_end(addr, end);
-		if (pud_none(*pud)) {
+		if (pud_none(*pud) || !walk->vma) {
 			if (ops->pte_hole)
 				err = ops->pte_hole(addr, next, walk);
 			if (err)
@@ -135,13 +135,6 @@ static int walk_p4d_range(pgd_t *pgd, unsigned long addr, unsigned long end,
 				break;
 			continue;
 		}
-#ifdef CONFIG_LRU_GEN		
-		if (ops->p4d_entry) {
-			err = ops->p4d_entry(p4d, addr, next, walk);
-			if (err)
-				break;
-		}
-#endif //#ifdef CONFIG_LRU_GEN
 		if (ops->pmd_entry || ops->pte_entry)
 			err = walk_pud_range(p4d, addr, next, walk);
 		if (err)
@@ -169,14 +162,8 @@ static int walk_pgd_range(unsigned long addr, unsigned long end,
 				break;
 			continue;
 		}
-#ifdef CONFIG_LRU_GEN
-		if (ops->pmd_entry || ops->pte_entry || ops->p4d_entry)
-			err = walk_p4d_range(pgd, addr, next, walk);
-#else
 		if (ops->pmd_entry || ops->pte_entry)
 			err = walk_p4d_range(pgd, addr, next, walk);
-
-#endif
 		if (err)
 			break;
 	} while (pgd++, addr = next, addr != end);
@@ -267,7 +254,7 @@ static int __walk_page_range(unsigned long start, unsigned long end,
 	int err = 0;
 	struct vm_area_struct *vma = walk->vma;
 
-	if (is_vm_hugetlb_page(vma)) {
+	if (vma && is_vm_hugetlb_page(vma)) {
 		if (walk->ops->hugetlb_entry)
 			err = walk_hugetlb_range(start, end, walk);
 	} else
@@ -337,13 +324,9 @@ int walk_page_range(struct mm_struct *mm, unsigned long start,
 		if (!vma) { /* after the last vma */
 			walk.vma = NULL;
 			next = end;
-			if (ops->pte_hole)
-				err = ops->pte_hole(start, next, &walk);
 		} else if (start < vma->vm_start) { /* outside vma */
 			walk.vma = NULL;
 			next = min(end, vma->vm_start);
-			if (ops->pte_hole)
-				err = ops->pte_hole(start, next, &walk);
 		} else { /* inside vma */
 			walk.vma = vma;
 			next = min(end, vma->vm_end);
@@ -361,8 +344,9 @@ int walk_page_range(struct mm_struct *mm, unsigned long start,
 			}
 			if (err < 0)
 				break;
-			err = __walk_page_range(start, next, &walk);
 		}
+		if (walk.vma || walk.ops->pte_hole)
+			err = __walk_page_range(start, next, &walk);
 		if (err)
 			break;
 	} while (start = next, start < end);

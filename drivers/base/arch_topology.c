@@ -77,7 +77,7 @@ static ssize_t cpu_capacity_show(struct device *dev,
 {
 	struct cpu *cpu = container_of(dev, struct cpu, dev);
 
-	return sysfs_emit(buf, "%lu\n", topology_get_cpu_scale(cpu->dev.id));
+	return sprintf(buf, "%lu\n", topology_get_cpu_scale(cpu->dev.id));
 }
 
 static void update_topology_flags_workfn(struct work_struct *work);
@@ -167,7 +167,7 @@ bool __init topology_parse_cpu_capacity(struct device_node *cpu_node, int cpu)
 				   &cpu_capacity);
 	if (!ret) {
 		if (!raw_capacity) {
-			raw_capacity = kcalloc(cpumask_last(cpu_possible_mask),
+			raw_capacity = kcalloc(num_possible_cpus(),
 					       sizeof(*raw_capacity),
 					       GFP_KERNEL);
 			if (!raw_capacity) {
@@ -278,16 +278,6 @@ core_initcall(free_raw_capacity);
 #endif
 
 #if defined(CONFIG_ARM64) || defined(CONFIG_RISCV)
-/*
- * This function returns the logic cpu number of the node.
- * There are basically three kinds of return values:
- * (1) logic cpu number which is > 0.
- * (2) -ENODEV when the device tree(DT) node is valid and found in the DT but
- * there is no possible logical CPU in the kernel to match. This happens
- * when CONFIG_NR_CPUS is configure to be smaller than the number of
- * CPU nodes in DT. We need to just ignore this case.
- * (3) -1 if the node does not exist in the device tree
- */
 static int __init get_cpu_for_node(struct device_node *node)
 {
 	struct device_node *cpu_node;
@@ -301,8 +291,7 @@ static int __init get_cpu_for_node(struct device_node *node)
 	if (cpu >= 0)
 		topology_parse_cpu_capacity(cpu_node, cpu);
 	else
-		pr_info("CPU node for %pOF exist but the possible cpu range is :%*pbl\n",
-			cpu_node, cpumask_pr_args(cpu_possible_mask));
+		pr_crit("Unable to find CPU node for %pOF\n", cpu_node);
 
 	of_node_put(cpu_node);
 	return cpu;
@@ -311,7 +300,7 @@ static int __init get_cpu_for_node(struct device_node *node)
 static int __init parse_core(struct device_node *core, int package_id,
 			     int core_id)
 {
-	char name[20];
+	char name[10];
 	bool leaf = true;
 	int i = 0;
 	int cpu;
@@ -327,8 +316,9 @@ static int __init parse_core(struct device_node *core, int package_id,
 				cpu_topology[cpu].package_id = package_id;
 				cpu_topology[cpu].core_id = core_id;
 				cpu_topology[cpu].thread_id = i;
-			} else if (cpu != -ENODEV) {
-				pr_err("%pOF: Can't get CPU for thread\n", t);
+			} else {
+				pr_err("%pOF: Can't get CPU for thread\n",
+				       t);
 				of_node_put(t);
 				return -EINVAL;
 			}
@@ -347,7 +337,7 @@ static int __init parse_core(struct device_node *core, int package_id,
 
 		cpu_topology[cpu].package_id = package_id;
 		cpu_topology[cpu].core_id = core_id;
-	} else if (leaf && cpu != -ENODEV) {
+	} else if (leaf) {
 		pr_err("%pOF: Can't get CPU for leaf core\n", core);
 		return -EINVAL;
 	}
@@ -357,7 +347,7 @@ static int __init parse_core(struct device_node *core, int package_id,
 
 static int __init parse_cluster(struct device_node *cluster, int depth)
 {
-	char name[20];
+	char name[10];
 	bool leaf = true;
 	bool has_cores = false;
 	struct device_node *c;
@@ -497,7 +487,7 @@ void update_siblings_masks(unsigned int cpuid)
 	for_each_online_cpu(cpu) {
 		cpu_topo = &cpu_topology[cpu];
 
-		if (cpu_topo->llc_id != -1 && cpuid_topo->llc_id == cpu_topo->llc_id) {
+		if (cpuid_topo->llc_id == cpu_topo->llc_id) {
 			cpumask_set_cpu(cpu, &cpuid_topo->llc_sibling);
 			cpumask_set_cpu(cpuid, &cpu_topo->llc_sibling);
 		}
@@ -577,24 +567,5 @@ void __init init_cpu_topology(void)
 		reset_cpu_topology();
 	else if (of_have_populated_dt() && parse_dt_topology())
 		reset_cpu_topology();
-}
-
-void store_cpu_topology(unsigned int cpuid)
-{
-	struct cpu_topology *cpuid_topo = &cpu_topology[cpuid];
-
-	if (cpuid_topo->package_id != -1)
-		goto topology_populated;
-
-	cpuid_topo->thread_id = -1;
-	cpuid_topo->core_id = cpuid;
-	cpuid_topo->package_id = cpu_to_node(cpuid);
-
-	pr_debug("CPU%u: package %d core %d thread %d\n",
-		 cpuid, cpuid_topo->package_id, cpuid_topo->core_id,
-		 cpuid_topo->thread_id);
-
-topology_populated:
-	update_siblings_masks(cpuid);
 }
 #endif

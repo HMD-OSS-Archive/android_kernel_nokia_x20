@@ -1312,7 +1312,6 @@ error:
 
 error_module_put:
 	module_put(d->driver->owner);
-	d->driver = NULL;
 error_put_device:
 	put_device(d);
 	if (ndev_owner != bus->owner)
@@ -1422,8 +1421,7 @@ void phy_detach(struct phy_device *phydev)
 
 	phy_led_triggers_unregister(phydev);
 
-	if (phydev->mdio.dev.driver)
-		module_put(phydev->mdio.dev.driver->owner);
+	module_put(phydev->mdio.dev.driver->owner);
 
 	/* If the device had no specific driver before (i.e. - it
 	 * was using the generic driver), we unbind the device
@@ -1433,9 +1431,6 @@ void phy_detach(struct phy_device *phydev)
 	if (phy_driver_is_genphy(phydev) ||
 	    phy_driver_is_genphy_10g(phydev))
 		device_release_driver(&phydev->mdio.dev);
-
-	/* Assert the reset signal */
-	phy_device_reset(phydev, 1);
 
 	/*
 	 * The phydev might go away on the put_device() below, so avoid
@@ -1448,6 +1443,9 @@ void phy_detach(struct phy_device *phydev)
 		ndev_owner = dev->dev.parent->driver->owner;
 	if (ndev_owner != bus->owner)
 		module_put(bus->owner);
+
+	/* Assert the reset signal */
+	phy_device_reset(phydev, 1);
 }
 EXPORT_SYMBOL(phy_detach);
 
@@ -1767,10 +1765,9 @@ int genphy_update_link(struct phy_device *phydev)
 
 	/* The link state is latched low so that momentary link
 	 * drops can be detected. Do not double-read the status
-	 * in polling mode to detect such short link drops except
-	 * the link was already down.
+	 * in polling mode to detect such short link drops.
 	 */
-	if (!phy_polling_mode(phydev) || !phydev->link) {
+	if (!phy_polling_mode(phydev)) {
 		status = phy_read(phydev, MII_BMSR);
 		if (status < 0)
 			return status;

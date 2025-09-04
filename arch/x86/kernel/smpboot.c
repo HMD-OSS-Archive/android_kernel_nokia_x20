@@ -99,17 +99,6 @@ DEFINE_PER_CPU_READ_MOSTLY(cpumask_var_t, cpu_llc_shared_map);
 DEFINE_PER_CPU_READ_MOSTLY(struct cpuinfo_x86, cpu_info);
 EXPORT_PER_CPU_SYMBOL(cpu_info);
 
-struct mwait_cpu_dead {
-	unsigned int	control;
-	unsigned int	status;
-};
-
-/*
- * Cache line aligned data for mwait_play_dead(). Separate on purpose so
- * that it's unlikely to be touched by other CPUs.
- */
-static DEFINE_PER_CPU_ALIGNED(struct mwait_cpu_dead, mwait_cpu_dead);
-
 /* Logical package management. We might want to allocate that dynamically */
 unsigned int __max_logical_packages __read_mostly;
 EXPORT_SYMBOL(__max_logical_packages);
@@ -235,8 +224,6 @@ static void notrace start_secondary(void *unused)
 #endif
 	load_current_idt();
 	cpu_init();
-	fpu__init_cpu();
-	rcu_cpu_starting(raw_smp_processor_id());
 	x86_cpuinit.early_percpu_clock_init();
 	preempt_disable();
 	smp_callin();
@@ -1612,27 +1599,13 @@ int native_cpu_disable(void)
 	if (ret)
 		return ret;
 
-	cpu_disable_common();
-
-        /*
-         * Disable the local APIC. Otherwise IPI broadcasts will reach
-         * it. It still responds normally to INIT, NMI, SMI, and SIPI
-         * messages.
-         *
-         * Disabling the APIC must happen after cpu_disable_common()
-         * which invokes fixup_irqs().
-         *
-         * Disabling the APIC preserves already set bits in IRR, but
-         * an interrupt arriving after disabling the local APIC does not
-         * set the corresponding IRR bit.
-         *
-         * fixup_irqs() scans IRR for set bits so it can raise a not
-         * yet handled interrupt on the new destination CPU via an IPI
-         * but obviously it can't do so for IRR bits which are not set.
-         * IOW, interrupts arriving after disabling the local APIC will
-         * be lost.
-         */
+	/*
+	 * Disable the local APIC. Otherwise IPI broadcasts will reach
+	 * it. It still responds normally to INIT, NMI, SMI, and SIPI
+	 * messages.
+	 */
 	apic_soft_disable();
+	cpu_disable_common();
 
 	return 0;
 }
@@ -1687,10 +1660,10 @@ static bool wakeup_cpu0(void)
  */
 static inline void mwait_play_dead(void)
 {
-	struct mwait_cpu_dead *md = this_cpu_ptr(&mwait_cpu_dead);
 	unsigned int eax, ebx, ecx, edx;
 	unsigned int highest_cstate = 0;
 	unsigned int highest_subcstate = 0;
+	void *mwait_ptr;
 	int i;
 
 	if (boot_cpu_data.x86_vendor == X86_VENDOR_AMD ||
@@ -1725,6 +1698,13 @@ static inline void mwait_play_dead(void)
 			(highest_subcstate - 1);
 	}
 
+	/*
+	 * This should be a memory location in a cache line which is
+	 * unlikely to be touched by other processors.  The actual
+	 * content is immaterial as it is not actually modified in any way.
+	 */
+	mwait_ptr = &current_thread_info()->flags;
+
 	wbinvd();
 
 	while (1) {
@@ -1736,9 +1716,9 @@ static inline void mwait_play_dead(void)
 		 * case where we return around the loop.
 		 */
 		mb();
-		clflush(md);
+		clflush(mwait_ptr);
 		mb();
-		__monitor(md, 0, 0);
+		__monitor(mwait_ptr, 0, 0);
 		mb();
 		__mwait(eax, 0);
 		/*

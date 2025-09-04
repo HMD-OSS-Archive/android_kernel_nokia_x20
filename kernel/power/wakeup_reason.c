@@ -62,7 +62,6 @@ static struct kobject *kobj;
 static bool capture_reasons;
 static int wakeup_reason;
 static char non_irq_wake_reason[MAX_SUSPEND_ABORT_LEN];
-static char rtc_addition_info[MAX_SUSPEND_ABORT_LEN]; // ning.wei++ for add more detail for wakeup reason
 
 static ktime_t last_monotime; /* monotonic time before last suspend */
 static ktime_t curr_monotime; /* monotonic time after last suspend */
@@ -267,29 +266,8 @@ void clear_wakeup_reasons(void)
 	wakeup_reason = RESUME_NONE;
 	capture_reasons = true;
 
-	log_rtc_addition_info("%s", "None"); // ning.wei++ for add more detail for wakeup reason
-
 	spin_unlock_irqrestore(&wakeup_reason_lock, flags);
 }
-
-// Add-begin by ning.wei for add more detail for wakeup reason
-void msm_set_wakeup_reason_to_resume_irq(void)
-{
-	wakeup_reason = RESUME_IRQ;
-}
-
-void log_rtc_addition_info(const char *fmt, ...)
-{
-	va_list args;
-
-	va_start(args, fmt);
-
-	vsnprintf(rtc_addition_info, MAX_SUSPEND_ABORT_LEN, fmt, args);
-
-	va_end(args);
-}
-EXPORT_SYMBOL_GPL(log_rtc_addition_info);
-// Add-end by ning.wei for add more detail for wakeup reason
 
 static void print_wakeup_sources(void)
 {
@@ -307,16 +285,9 @@ static void print_wakeup_sources(void)
 	}
 
 	if (wakeup_reason == RESUME_IRQ && !list_empty(&leaf_irqs))
-		// Mod-begin by ning.wei for add more detail for wakeup reason
-		list_for_each_entry(n, &leaf_irqs, siblings) {
-			if (strcmp("pm8xxx_rtc_alarm", n->irq_name) == 0) {
-				pr_info("Resume caused by IRQ %d, %s:%s\n", n->irq, n->irq_name, rtc_addition_info);
-			}
-			else {
-				pr_info("Resume caused by IRQ %d, %s\n", n->irq, n->irq_name);
-			}
-		}
-		// Mod-end by ning.wei for add more detail for wakeup reason
+		list_for_each_entry(n, &leaf_irqs, siblings)
+			pr_info("Resume caused by IRQ %d, %s\n", n->irq,
+				n->irq_name);
 	else if (wakeup_reason == RESUME_ABNORMAL)
 		pr_info("Resume caused by %s\n", non_irq_wake_reason);
 	else
@@ -342,20 +313,10 @@ static ssize_t last_resume_reason_show(struct kobject *kobj,
 	}
 
 	if (wakeup_reason == RESUME_IRQ && !list_empty(&leaf_irqs))
-		// Mod-begin by ning.wei for add more detail for wakeup reason
-		list_for_each_entry(n, &leaf_irqs, siblings) {
-			if (strcmp("pm8xxx_rtc_alarm", n->irq_name) == 0) {
-				buf_offset += scnprintf(buf + buf_offset,
-							PAGE_SIZE - buf_offset,
-							"%d %s:%s\n", n->irq, n->irq_name, rtc_addition_info);
-			}
-			else {
-				buf_offset += scnprintf(buf + buf_offset,
-							PAGE_SIZE - buf_offset,
-							"%d %s\n", n->irq, n->irq_name);
-			}
-		}
-		// Mod-end by ning.wei for add more detail for wakeup reason
+		list_for_each_entry(n, &leaf_irqs, siblings)
+			buf_offset += scnprintf(buf + buf_offset,
+						PAGE_SIZE - buf_offset,
+						"%d %s\n", n->irq, n->irq_name);
 	else if (wakeup_reason == RESUME_ABNORMAL)
 		buf_offset = scnprintf(buf, PAGE_SIZE, "-1 %s",
 				       non_irq_wake_reason);

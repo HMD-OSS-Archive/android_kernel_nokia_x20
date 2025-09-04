@@ -186,8 +186,6 @@ static const struct tcphdr *nf_osf_hdr_ctx_init(struct nf_osf_hdr_ctx *ctx,
 
 		ctx->optp = skb_header_pointer(skb, ip_hdrlen(skb) +
 				sizeof(struct tcphdr), ctx->optsize, opts);
-		if (!ctx->optp)
-			return NULL;
 	}
 
 	return tcp;
@@ -269,7 +267,6 @@ bool nf_osf_find(const struct sk_buff *skb,
 	struct nf_osf_hdr_ctx ctx;
 	const struct tcphdr *tcp;
 	struct tcphdr _tcph;
-	bool found = false;
 
 	memset(&ctx, 0, sizeof(ctx));
 
@@ -284,11 +281,10 @@ bool nf_osf_find(const struct sk_buff *skb,
 
 		data->genre = f->genre;
 		data->version = f->version;
-		found = true;
 		break;
 	}
 
-	return found;
+	return true;
 }
 EXPORT_SYMBOL_GPL(nf_osf_find);
 
@@ -315,14 +311,6 @@ static int nfnl_osf_add_callback(struct net *net, struct sock *ctnl,
 		return -EINVAL;
 
 	f = nla_data(osf_attrs[OSF_ATTR_FINGER]);
-
-	if (f->opt_num > ARRAY_SIZE(f->opt))
-		return -EINVAL;
-
-	if (!memchr(f->genre, 0, MAXGENRELEN) ||
-	    !memchr(f->subtype, 0, MAXGENRELEN) ||
-	    !memchr(f->version, 0, MAXGENRELEN))
-		return -EINVAL;
 
 	kf = kmalloc(sizeof(struct nf_osf_finger), GFP_KERNEL);
 	if (!kf)
@@ -448,4 +436,3 @@ module_init(nfnl_osf_init);
 module_exit(nfnl_osf_fini);
 
 MODULE_LICENSE("GPL");
-MODULE_ALIAS_NFNL_SUBSYS(NFNL_SUBSYS_OSF);

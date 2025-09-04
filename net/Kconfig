@@ -202,6 +202,7 @@ config BRIDGE_NETFILTER
 source "net/netfilter/Kconfig"
 source "net/ipv4/netfilter/Kconfig"
 source "net/ipv6/netfilter/Kconfig"
+source "net/decnet/netfilter/Kconfig"
 source "net/bridge/netfilter/Kconfig"
 
 endif
@@ -218,6 +219,7 @@ source "net/802/Kconfig"
 source "net/bridge/Kconfig"
 source "net/dsa/Kconfig"
 source "net/8021q/Kconfig"
+source "net/decnet/Kconfig"
 source "net/llc/Kconfig"
 source "drivers/net/appletalk/Kconfig"
 source "net/x25/Kconfig"
@@ -459,17 +461,6 @@ config ENABLE_SFE
 	  Includes following changes, Add support to packet threshold events.
 	  Changes to support Shortcut Forward Engine.
 	  Add bridge API to access the bridge slave port.
-
-#Generic-Software-Bridge
-config ENABLE_GSB
-        bool "Enable generic-software-bridge"
-        depends on QGKI
-        help
-          ENABLE_GSB enables software acceleration on the target via gsb.
-          The change supports generic software bridge.
-          Helps to include gsb hook on the kernel.
-          Fulfills requirement of GSB network stack receive.
-          Change is supposed to go only on targets supporting gsb.
 
 endif   # if NET
 

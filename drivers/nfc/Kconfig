@@ -87,14 +87,13 @@ config NFC_QTI_I3C
 	  This enables the NFC driver for SNxxx based devices.
 	  This is for I3C connected version. NCI protocol logic
 	  resides in the usermode and it has no other NFC dependencies.
-
 config ST21NFC
 	tristate "support ST st54j nfc controller driver"
 	depends on I2C
 	help
 	  ST St54j near field communtion controller support
 config NFC_ST54J_SE
-	tristate "NFC eSE driver for ST ST54J using NFC_ST21NFC"
+	bool "NFC eSE driver for ST ST54J using NFC_ST21NFC"
 	depends on I2C
 	depends on SPI
 	depends on ST21NFC

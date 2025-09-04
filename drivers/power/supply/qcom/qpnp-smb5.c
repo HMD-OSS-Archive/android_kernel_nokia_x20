@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
- * Copyright (c) 2018-2021 The Linux Foundation. All rights reserved.
+ * Copyright (c) 2018-2020 The Linux Foundation. All rights reserved.
  */
 #if defined(SMT_VERSION) || defined(DEBUG_CHARGER)
 #ifndef DEBUG
@@ -30,10 +30,6 @@
 #include "smb5-lib.h"
 #include "smb5-iio.h"
 #include "schgm-flash.h"
-#ifdef CONFIG_HS_TYPEC_OTG_CONTROL_FUNCTION
-#include <linux/his_debug_base.h>
-#endif/*CONFIG_HS_TYPEC_OTG_CONTROL_FUNCTION*/
-
 
 char pmic_version[32]="unknown";
 EXPORT_SYMBOL(pmic_version);
@@ -143,11 +139,7 @@ static struct smb_params smb5_pm8150b_params = {
 		.name   = "usb input current limit",
 		.reg    = USBIN_CURRENT_LIMIT_CFG_REG,
 		.min_u  = 0,
-		#if defined(TARGET_PRODUCT_PUNISHER)
-		.max_u  = 3000000,
-		#else
 		.max_u  = 5000000,
-		#endif
 		.step_u = 50000,
 	},
 	.icl_max_stat		= {
@@ -238,6 +230,7 @@ struct smb_dt_props {
 	int			term_current_src;
 	int			term_current_thresh_hi_ma;
 	int			term_current_thresh_lo_ma;
+	int			disable_suspend_on_collapse;
 };
 
 struct smb5 {
@@ -249,8 +242,7 @@ struct smb5 {
 	struct iio_chan_spec	*iio_chan_ids;
 };
 
-static int __debug_mask =
-	PR_PARALLEL | PR_INTERRUPT | PR_OTG | PR_MISC | PR_REGISTER;
+static int __debug_mask = 0;
 
 static ssize_t pd_disabled_show(struct device *dev, struct device_attribute
 				*attr, char *buf)
@@ -466,9 +458,6 @@ static int smb5_parse_dt_misc(struct smb5 *chip, struct device_node *node)
 	chg->sw_jeita_enabled = of_property_read_bool(node,
 				"qcom,sw-jeita-enable");
 
-	chg->jeita_arb_enable = of_property_read_bool(node,
-				"qcom,jeita-arb-enable");
-
 	chg->pd_not_supported = chg->pd_not_supported ||
 			of_property_read_bool(node, "qcom,usb-pd-disable");
 
@@ -583,7 +572,7 @@ static int smb5_parse_dt_misc(struct smb5 *chip, struct device_node *node)
 	of_property_read_u32(node, "qcom,connector-internal-pull-kohm",
 					&chg->connector_pull_up);
 
-	chg->disable_suspend_on_collapse = of_property_read_bool(node,
+	chip->dt.disable_suspend_on_collapse = of_property_read_bool(node,
 					"qcom,disable-suspend-on-collapse");
 	chg->smb_pull_up = -EINVAL;
 	of_property_read_u32(node, "qcom,smb-internal-pull-kohm",
@@ -889,14 +878,7 @@ static int smb5_usb_get_prop(struct power_supply *psy,
 		rc = smblib_get_prop_usb_present(chg, val);
 		break;
 	case POWER_SUPPLY_PROP_ONLINE:
-#ifdef SMT_VERSION
-		/* Online also needs to be 1 when charging is disable by runin.
-		 * This modification is only included in the SMT version.
-		 */
-		rc = smblib_get_prop_usb_present(chg, val);
-#else
 		rc = smblib_get_usb_online(chg, val);
-#endif
 		break;
 	case POWER_SUPPLY_PROP_VOLTAGE_MAX_DESIGN:
 		rc = smblib_get_prop_usb_voltage_max_design(chg, val);
@@ -975,9 +957,6 @@ static int smb5_usb_set_prop(struct power_supply *psy,
 	case POWER_SUPPLY_PROP_INPUT_CURRENT_LIMIT:
 		rc = smblib_set_prop_sdp_current_max(chg, val->intval);
 		break;
-	case POWER_SUPPLY_PROP_POWER_NOW:
-			chg->qc3p5_detected_mw = val->intval;
-		break;
 	default:
 		pr_err("Set prop %d is not supported in usb psy\n",
 				psp);
@@ -993,7 +972,6 @@ static int smb5_usb_prop_is_writeable(struct power_supply *psy,
 {
 	switch (psp) {
 	case POWER_SUPPLY_PROP_INPUT_CURRENT_LIMIT:
-	case POWER_SUPPLY_PROP_POWER_NOW:
 		return 1;
 	default:
 		break;
@@ -2233,7 +2211,7 @@ static int smb5_init_hw(struct smb5 *chip)
 	mask = USBIN_AICL_PERIODIC_RERUN_EN_BIT | USBIN_AICL_ADC_EN_BIT
 			| USBIN_AICL_EN_BIT | SUSPEND_ON_COLLAPSE_USBIN_BIT;
 	val = USBIN_AICL_PERIODIC_RERUN_EN_BIT | USBIN_AICL_EN_BIT;
-	if (!chg->disable_suspend_on_collapse)
+	if (!chip->dt.disable_suspend_on_collapse)
 		val |= SUSPEND_ON_COLLAPSE_USBIN_BIT;
 	if (chip->dt.adc_based_aicl)
 		val |= USBIN_AICL_ADC_EN_BIT;
@@ -2440,7 +2418,7 @@ static int smb5_determine_initial_status(struct smb5 *chip)
 	chg->early_usb_attach = val.intval;
 
 	if (chg->iio_chan_list_qg)
-		smblib_config_charger_on_debug_battery(chg);
+		smblib_suspend_on_debug_battery(chg);
 
 	smb5_usb_plugin_irq_handler(0, &irq_data);
 	smb5_dc_plugin_irq_handler(0, &irq_data);
@@ -2453,10 +2431,7 @@ static int smb5_determine_initial_status(struct smb5 *chip)
 	smb5_wdog_bark_irq_handler(0, &irq_data);
 	smb5_typec_or_rid_detection_change_irq_handler(0, &irq_data);
 	smb5_wdog_snarl_irq_handler(0, &irq_data);
-#ifdef CONFIG_HS_CHARGE_FG_FUNCTION
-	/*Solve otg can not be recognized when system is bringup.*/
-	schedule_delayed_work(&chg->initial_recheck_otg_work, msecs_to_jiffies(1000));
-#endif /*CONFIG_HS_CHARGE_FG_FUNCTION*/
+
 	return 0;
 }
 
@@ -2828,97 +2803,6 @@ static void smb5_disable_interrupts(struct smb_charger *chg)
 			disable_irq(smb5_irqs[i].irq);
 	}
 }
-#ifdef CONFIG_HS_TYPEC_OTG_CONTROL_FUNCTION
-static struct smb5 *g_chip = NULL;
-static struct smb5 *pglobal_smb5_chip = NULL;
-
-static ssize_t type_c_disable_otg_show(struct kobject *kobj,
-		struct kobj_attribute *attr, char *buf)
-{
-	return sprintf(buf, "%d\n", g_chip->chg.disable_otg);
-}
-
-static ssize_t type_c_disable_otg_store(struct kobject *kobj,
-		struct kobj_attribute *attr, const char *buf,size_t len)
-{
-	int val;
-	bool disable = false;
-	int rc = 0;
-	unsigned long state = 0;
-	struct smb_charger *chg = &(g_chip->chg);
-
-	rc = kstrtoul(buf, 10, &state);
-	if (rc)
-		goto out;
-
-	disable = !!state;
-	pr_info("%s: %sable otg %d\n", __func__, disable ? "dis" : "en", chg->disable_otg);
-	if (disable != chg->disable_otg) {
-		chg->disable_otg = disable;
-		pr_info("%s typec_mode %d mode %s vbus\n", __func__,chg->typec_mode, chg->disable_otg ? "disable" : "enable");
-		if (chg->typec_mode == QTI_POWER_SUPPLY_TYPEC_SINK) {
-			pr_info("%s QTI_POWER_SUPPLY_TYPEC_SINK mode %s vbus\n", __func__, chg->disable_otg ? "disable" : "enable");
-			rc = chg->disable_otg ? smblib_vbus_regulator_disable(chg->vbus_vreg->rdev) : smblib_vbus_regulator_enable(chg->vbus_vreg->rdev);
-			if (rc < 0)
-				dev_err(chg->dev, "Couldn't config vbus_regulator rc=%d\n", rc);
-			rc =  chg->disable_otg ? smblib_vconn_regulator_disable(chg->vbus_vreg->rdev):smblib_vconn_regulator_enable(chg->vbus_vreg->rdev);
-			if (rc < 0)
-				dev_err(chg->dev, "Couldn't config vconn_regulator rc=%d\n", rc);
-		} else if ((chg->typec_mode == QTI_POWER_SUPPLY_TYPEC_SOURCE_DEFAULT) ||
-					(chg->typec_mode == QTI_POWER_SUPPLY_TYPEC_SOURCE_MEDIUM) ||
-					(chg->typec_mode == QTI_POWER_SUPPLY_TYPEC_SOURCE_HIGH)){
-			pr_info("%s source is present,do nothing\n", __func__);
-		} else {
-			if(chg->disable_otg){
-				/*configure power role for sink-only-role*/
-				val = QTI_POWER_SUPPLY_TYPEC_PR_SINK;
-			}else{
-				val = QTI_POWER_SUPPLY_TYPEC_PR_DUAL;
-			}
-			rc = smblib_set_prop_typec_power_role(chg, val);
-			if (rc < 0) {
-				dev_err(chg->dev, "Couldn't configure DRP role rc=%d\n", rc);
-				goto out;
-			}
-		}
-	}
-	rc = len;
-out:
-	return rc;
-}
-static struct kobj_attribute typec_disable_otg_attr = __ATTR_RW(type_c_disable_otg);
-
-static ssize_t host_mode_show(struct kobject *kobj,
-		struct kobj_attribute *attr, char *buf)
-{
-	pr_info("@@@@%s: fastcharge_flags is %d\n", __func__, pglobal_smb5_chip->chg.otg_present);
-	return sprintf(buf, "%d\n", !!pglobal_smb5_chip->chg.otg_present);
-}
-static struct kobj_attribute host_mode_attr = __ATTR_RO(host_mode);
-
-static void host_mode_control_init(void)
-{
-	int ret =0;
-
-	ret = his_register_sysfs_attr(&host_mode_attr.attr);
-	if(ret < 0){
-		pr_err("Error creating host mode sysfs node, ret=%d\n",ret);
-		return ;
-	}
-	pr_info("%s: OK.\n",__func__);
-}
-static void type_c_disable_otg_control_init(void)
-{
-	int ret =0;
-
-	ret = his_register_sysfs_attr(&typec_disable_otg_attr.attr);
-	if(ret < 0){
-		pr_err("Error creating type_c_disable_otg sysfs node, ret=%d\n",ret);
-		return ;
-	}
-	pr_info("%s: OK.\n",__func__);
-}
-#endif /*CONFIG_HS_TYPEC_OTG_CONTROL_FUNCTION*/
 
 #if defined(CONFIG_DEBUG_FS)
 
@@ -3255,7 +3139,7 @@ static int smb5_probe(struct platform_device *pdev)
 	chg->iio_chans = chip->iio_chans;
 	chg->iio_chan_list_qg = NULL;
 	chg->dev = &pdev->dev;
-	__debug_mask |= 0x1; // add by ontim
+	//__debug_mask |= 0x1;
 	chg->debug_mask = &__debug_mask;
 	chg->pd_disabled = 0;
 	chg->weak_chg_icl_ua = 500000;
@@ -3401,15 +3285,6 @@ static int smb5_probe(struct platform_device *pdev)
 
 	smb5_create_debugfs(chip);
 
-#ifdef CONFIG_HS_TYPEC_OTG_CONTROL_FUNCTION
-	pglobal_smb5_chip = chip;
-
-	if (chip->chg.connector_type == QTI_POWER_SUPPLY_CONNECTOR_TYPEC){
-		g_chip = chip;
-		type_c_disable_otg_control_init();
-		host_mode_control_init();
-	}
-#endif /* CONFIG_HS_TYPEC_OTG_CONTROL_FUNCTION */
 	rc = sysfs_create_groups(&chg->dev->kobj, smb5_groups);
 	if (rc < 0) {
 		pr_err("Couldn't create sysfs files rc=%d\n", rc);

@@ -5,3 +5,7 @@
 
 obj-$(CONFIG_USB_PD_POLICY)	+= policy_engine.o
 obj-$(CONFIG_QPNP_USB_PDPHY)	+= qpnp-pdphy.o
+
+ifeq ($(BUILD_SMT),true)
+subdir-ccflags-y += -DDEBUG
+endif

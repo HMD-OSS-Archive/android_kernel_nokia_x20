@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
- * Copyright (c) 2019-2021, The Linux Foundation. All rights reserved.
- * Copyright (c) 2022 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2019-2020, The Linux Foundation. All rights reserved.
  */
 
 #include <linux/interconnect.h>
@@ -55,21 +54,10 @@ static void set_ddr_qos(struct kgsl_device *device, int buslevel)
 	if (new_min_freq == cur_min_freq)
 		return;
 
-	/*
-	 * We need the event lock to protect against concurrent governor
-	 * re-assignments.
-	 */
-	event_mutex_lock(dev);
 	mutex_lock(&dev->lock);
-	/*
-	 * Update both min/max to make sure correct vote is set regardless
-	 * of the governor, which can be changed from sysfs
-	 */
 	dev->min_freq = new_min_freq;
-	dev->max_freq = new_min_freq;
 	ret = update_devfreq(dev);
 	mutex_unlock(&dev->lock);
-	event_mutex_unlock(dev);
 
 	if (!ret)
 		cur_min_freq = new_min_freq;
@@ -225,7 +213,6 @@ void kgsl_bus_close(struct kgsl_device *device)
 	kfree(device->pwrctrl.ddr_table);
 	device->pwrctrl.ddr_table = NULL;
 	icc_put(device->pwrctrl.icc_path);
-	device->pwrctrl.icc_path = NULL;
 	if (device->pwrctrl.ddr_qos_devfreq)
 		put_device(&device->pwrctrl.ddr_qos_devfreq->dev);
 }

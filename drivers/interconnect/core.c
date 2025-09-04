@@ -678,10 +678,6 @@ void icc_node_destroy(int id)
 
 	mutex_unlock(&icc_lock);
 
-	if (!node)
-		return;
-
-	kfree(node->links);
 	kfree(node);
 }
 EXPORT_SYMBOL_GPL(icc_node_destroy);
@@ -774,8 +770,6 @@ int icc_link_destroy(struct icc_node *src, struct icc_node *dst)
 		       GFP_KERNEL);
 	if (new)
 		src->links = new;
-	else
-		ret = -ENOMEM;
 
 out:
 	mutex_unlock(&icc_lock);

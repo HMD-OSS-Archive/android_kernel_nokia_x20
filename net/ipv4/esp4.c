@@ -272,6 +272,7 @@ static int esp_output_udp_encap(struct xfrm_state *x, struct sk_buff *skb, struc
 int esp_output_head(struct xfrm_state *x, struct sk_buff *skb, struct esp_info *esp)
 {
 	u8 *tail;
+	u8 *vaddr;
 	int nfrags;
 	int esph_offset;
 	struct page *page;
@@ -285,10 +286,6 @@ int esp_output_head(struct xfrm_state *x, struct sk_buff *skb, struct esp_info *
 		if (err < 0)
 			return err;
 	}
-
-	if (ALIGN(tailen, L1_CACHE_BYTES) > PAGE_SIZE ||
-	    ALIGN(skb->data_len, L1_CACHE_BYTES) > PAGE_SIZE)
-		goto cow;
 
 	if (!skb_cloned(skb)) {
 		if (tailen <= skb_tailroom(skb)) {
@@ -317,9 +314,13 @@ int esp_output_head(struct xfrm_state *x, struct sk_buff *skb, struct esp_info *
 			page = pfrag->page;
 			get_page(page);
 
-			tail = page_address(page) + pfrag->offset;
+			vaddr = kmap_atomic(page);
+
+			tail = vaddr + pfrag->offset;
 
 			esp_output_fill_trailer(tail, esp->tfclen, esp->plen, esp->proto);
+
+			kunmap_atomic(vaddr);
 
 			nfrags = skb_shinfo(skb)->nr_frags;
 
@@ -567,9 +568,7 @@ static inline int esp_remove_trailer(struct sk_buff *skb)
 		skb->csum = csum_block_sub(skb->csum, csumdiff,
 					   skb->len - trimlen);
 	}
-	ret = pskb_trim(skb, skb->len - trimlen);
-	if (unlikely(ret))
-		return ret;
+	pskb_trim(skb, skb->len - trimlen);
 
 	ret = nexthdr[1];
 

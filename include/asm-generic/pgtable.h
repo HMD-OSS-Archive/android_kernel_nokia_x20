@@ -121,21 +121,6 @@ static inline int pmdp_clear_flush_young(struct vm_area_struct *vma,
 #endif /* CONFIG_TRANSPARENT_HUGEPAGE */
 #endif
 
-// modify for google MLRU
-#ifndef arch_has_hw_pte_young
-/*
- * Return whether the accessed bit is supported on the local CPU.
- *
- * This stub assumes accessing through an old PTE triggers a page fault.
- * Architectures that automatically set the access bit should overwrite it.
- */
-static inline bool arch_has_hw_pte_young(void)
-{
-	return false;
-}
-#endif
-
-
 #ifndef __HAVE_ARCH_PTEP_GET_AND_CLEAR
 static inline pte_t ptep_get_and_clear(struct mm_struct *mm,
 				       unsigned long address,
@@ -1174,17 +1159,8 @@ static inline bool arch_has_pfn_modify_check(void)
 
 #endif /* !__ASSEMBLY__ */
 
-#if !defined(MAX_POSSIBLE_PHYSMEM_BITS) && !defined(CONFIG_64BIT)
-#ifdef CONFIG_PHYS_ADDR_T_64BIT
-/*
- * ZSMALLOC needs to know the highest PFN on 32-bit architectures
- * with physical address space extension, but falls back to
- * BITS_PER_LONG otherwise.
- */
-#error Missing MAX_POSSIBLE_PHYSMEM_BITS definition
-#else
-#define MAX_POSSIBLE_PHYSMEM_BITS 32
-#endif
+#ifndef io_remap_pfn_range
+#define io_remap_pfn_range remap_pfn_range
 #endif
 
 #ifndef has_transparent_hugepage
@@ -1193,16 +1169,6 @@ static inline bool arch_has_pfn_modify_check(void)
 #else
 #define has_transparent_hugepage() 0
 #endif
-#endif
-
-#ifndef p4d_offset_lockless
-#define p4d_offset_lockless(pgdp, pgd, address) p4d_offset(&(pgd), address)
-#endif
-#ifndef pud_offset_lockless
-#define pud_offset_lockless(p4dp, p4d, address) pud_offset(&(p4d), address)
-#endif
-#ifndef pmd_offset_lockless
-#define pmd_offset_lockless(pudp, pud, address) pmd_offset(&(pud), address)
 #endif
 
 /*

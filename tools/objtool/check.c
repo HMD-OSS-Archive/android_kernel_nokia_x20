@@ -136,7 +136,6 @@ static bool __dead_end_function(struct objtool_file *file, struct symbol *func,
 		"panic",
 		"do_exit",
 		"do_task_dead",
-		"make_task_dead",
 		"__module_put_and_exit",
 		"complete_and_exit",
 		"__reiserfs_panic",
@@ -144,8 +143,7 @@ static bool __dead_end_function(struct objtool_file *file, struct symbol *func,
 		"fortify_panic",
 		"usercopy_abort",
 		"machine_real_restart",
-		"rewind_stack_and_make_dead",
-		"cpu_bringup_and_idle",
+		"rewind_stack_do_exit",
 	};
 
 	if (!func)
@@ -163,7 +161,7 @@ static bool __dead_end_function(struct objtool_file *file, struct symbol *func,
 		return false;
 
 	insn = find_insn(file, func->sec, func->offset);
-	if (!insn || !insn->func)
+	if (!insn->func)
 		return false;
 
 	func_for_each_insn_all(file, func, insn) {
@@ -558,7 +556,7 @@ static int add_jump_destinations(struct objtool_file *file)
 		    insn->type != INSN_JUMP_UNCONDITIONAL)
 			continue;
 
-		if (insn->offset == FAKE_JUMP_OFFSET)
+		if (insn->ignore || insn->offset == FAKE_JUMP_OFFSET)
 			continue;
 
 		rela = find_rela_by_dest_range(insn->sec, insn->offset,
@@ -628,8 +626,8 @@ static int add_jump_destinations(struct objtool_file *file)
 			 * case where the parent function's only reference to a
 			 * subfunction is through a jump table.
 			 */
-			if (!strstr(insn->func->name, ".cold") &&
-			    strstr(insn->jump_dest->func->name, ".cold")) {
+			if (!strstr(insn->func->name, ".cold.") &&
+			    strstr(insn->jump_dest->func->name, ".cold.")) {
 				insn->func->cfunc = insn->jump_dest->func;
 				insn->jump_dest->func->pfunc = insn->func;
 
@@ -2194,19 +2192,15 @@ static int validate_branch(struct objtool_file *file, struct symbol *func,
 			break;
 
 		case INSN_STD:
-			if (state.df) {
+			if (state.df)
 				WARN_FUNC("recursive STD", sec, insn->offset);
-				return 1;
-			}
 
 			state.df = true;
 			break;
 
 		case INSN_CLD:
-			if (!state.df && func) {
+			if (!state.df && func)
 				WARN_FUNC("redundant CLD", sec, insn->offset);
-				return 1;
-			}
 
 			state.df = false;
 			break;

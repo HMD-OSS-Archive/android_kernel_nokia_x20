@@ -6,3 +6,8 @@ obj-$(CONFIG_TYPEC_TCPM)	+= tcpm/
 obj-$(CONFIG_TYPEC_UCSI)	+= ucsi/
 obj-$(CONFIG_TYPEC_TPS6598X)	+= tps6598x.o
 obj-$(CONFIG_TYPEC)		+= mux/
+
+ifeq ($(BUILD_SMT),true)
+subdir-ccflags-y += -DDEBUG
+endif
+

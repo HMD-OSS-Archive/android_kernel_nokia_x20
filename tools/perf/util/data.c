@@ -20,7 +20,7 @@
 
 static void close_dir(struct perf_data_file *files, int nr)
 {
-	while (--nr >= 0) {
+	while (--nr >= 1) {
 		close(files[nr].fd);
 		zfree(&files[nr].path);
 	}
@@ -35,7 +35,7 @@ void perf_data__close_dir(struct perf_data *data)
 int perf_data__create_dir(struct perf_data *data, int nr)
 {
 	struct perf_data_file *files = NULL;
-	int i, ret;
+	int i, ret = -1;
 
 	if (WARN_ON(!data->is_dir))
 		return -EINVAL;
@@ -44,11 +44,14 @@ int perf_data__create_dir(struct perf_data *data, int nr)
 	if (!files)
 		return -ENOMEM;
 
+	data->dir.version = PERF_DIR_VERSION;
+	data->dir.files   = files;
+	data->dir.nr      = nr;
+
 	for (i = 0; i < nr; i++) {
 		struct perf_data_file *file = &files[i];
 
-		ret = asprintf(&file->path, "%s/data.%d", data->path, i);
-		if (ret < 0)
+		if (asprintf(&file->path, "%s/data.%d", data->path, i) < 0)
 			goto out_err;
 
 		ret = open(file->path, O_RDWR|O_CREAT|O_TRUNC, S_IRUSR|S_IWUSR);
@@ -58,9 +61,6 @@ int perf_data__create_dir(struct perf_data *data, int nr)
 		file->fd = ret;
 	}
 
-	data->dir.version = PERF_DIR_VERSION;
-	data->dir.files   = files;
-	data->dir.nr      = nr;
 	return 0;
 
 out_err:
@@ -120,7 +120,6 @@ int perf_data__open_dir(struct perf_data *data)
 		file->size = st.st_size;
 	}
 
-	closedir(dir);
 	if (!files)
 		return -EINVAL;
 
@@ -129,7 +128,6 @@ int perf_data__open_dir(struct perf_data *data)
 	return 0;
 
 out_err:
-	closedir(dir);
 	close_dir(files, nr);
 	return ret;
 }

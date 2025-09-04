@@ -26,8 +26,6 @@
 	#include <linux/regulator/consumer.h>
 #endif
 
-#define FTS_PATCH_COMERR_PM                     1
-
 #define HIMAX_SPI_FIFO_POLLING
 #define HIMAX_I2C_RETRY_TIMES 3
 

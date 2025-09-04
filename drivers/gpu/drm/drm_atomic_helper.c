@@ -1078,16 +1078,7 @@ disable_outputs(struct drm_device *dev, struct drm_atomic_state *old_state)
 			continue;
 
 		ret = drm_crtc_vblank_get(crtc);
-		/*
-		 * Self-refresh is not a true "disable"; ensure vblank remains
-		 * enabled.
-		 */
-		if (new_crtc_state->self_refresh_active)
-			WARN_ONCE(ret != 0,
-				  "driver disabled vblank in self-refresh\n");
-		else
-			WARN_ONCE(ret != -EINVAL,
-				  "driver forgot to call drm_crtc_vblank_off()\n");
+		WARN_ONCE(ret != -EINVAL, "driver forgot to call drm_crtc_vblank_off()\n");
 		if (ret == 0)
 			drm_crtc_vblank_put(crtc);
 	}
@@ -2957,7 +2948,7 @@ int drm_atomic_helper_set_config(struct drm_mode_set *set,
 
 	ret = handle_conflicting_encoders(state, true);
 	if (ret)
-		goto fail;
+		return ret;
 
 	ret = drm_atomic_commit(state);
 

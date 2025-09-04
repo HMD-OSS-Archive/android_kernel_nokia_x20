@@ -1,17 +1,16 @@
 /* SPDX-License-Identifier: GPL-2.0-only */
 /*
- * Copyright (c) 2008-2021, The Linux Foundation. All rights reserved.
- * Copyright (c) 2023 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2008-2020, The Linux Foundation. All rights reserved.
  */
 #ifndef __KGSL_H
 #define __KGSL_H
 
-#include <uapi/linux/msm_kgsl.h>
 #include <linux/cdev.h>
 #include <linux/compat.h>
 #include <linux/interrupt.h>
 #include <linux/kthread.h>
 #include <linux/mm.h>
+#include <linux/msm_kgsl.h>
 #include <linux/uaccess.h>
 
 #include "kgsl_gmu_core.h"
@@ -71,11 +70,6 @@
 #define SCRATCH_RPTR_OFFSET(id) ((id) * sizeof(unsigned int))
 #define SCRATCH_RPTR_GPU_ADDR(dev, id) \
 	((dev)->scratch->gpuaddr + SCRATCH_RPTR_OFFSET(id))
-
-/* OFFSET to KMD postamble packets in scratch buffer */
-#define SCRATCH_POSTAMBLE_OFFSET (100 * sizeof(u64))
-#define SCRATCH_POSTAMBLE_ADDR(dev) \
-	((dev)->scratch->gpuaddr + SCRATCH_POSTAMBLE_OFFSET)
 
 /* Timestamp window used to detect rollovers (half of integer range) */
 #define KGSL_TIMESTAMP_WINDOW 0x80000000
@@ -274,6 +268,11 @@ struct kgsl_mem_entry {
 	char metadata[KGSL_GPUOBJ_ALLOC_METADATA_MAX + 1];
 	struct work_struct work;
 	/**
+	 * @mapped: The number of bytes in this entry that are mapped to
+	 * userspace
+	 */
+	u64 mapped;
+	/**
 	 * @map_count: Count how many vmas this object is mapped in - used for
 	 * debugfs accounting
 	 */
@@ -454,8 +453,6 @@ void kgsl_mem_entry_destroy(struct kref *kref);
 void kgsl_get_egl_counts(struct kgsl_mem_entry *entry,
 			int *egl_surface_count, int *egl_image_count);
 
-unsigned long kgsl_get_dmabuf_inode_number(struct kgsl_mem_entry *entry);
-
 struct kgsl_mem_entry * __must_check
 kgsl_sharedmem_find(struct kgsl_process_private *private, uint64_t gpuaddr);
 
@@ -482,7 +479,7 @@ void kgsl_core_exit(void);
 static inline bool kgsl_gpuaddr_in_memdesc(const struct kgsl_memdesc *memdesc,
 				uint64_t gpuaddr, uint64_t size)
 {
-	if (IS_ERR_OR_NULL(memdesc))
+	if (!memdesc)
 		return false;
 
 	/* set a minimum size to search for */
@@ -566,16 +563,6 @@ kgsl_mem_entry_put(struct kgsl_mem_entry *entry)
 	if (entry)
 		kref_put(&entry->refcount, kgsl_mem_entry_destroy);
 }
-
-/**
- * kgsl_mem_entry_put_deferred() - Puts refcount and triggers deferred
- * mem_entry destroy when refcount is the last refcount.
- * @entry: memory entry to be put.
- *
- * Use this to put a memory entry when we don't want to block
- * the caller while destroying memory entry.
- */
-void kgsl_mem_entry_put_deferred(struct kgsl_mem_entry *entry);
 
 /*
  * kgsl_addr_range_overlap() - Checks if 2 ranges overlap

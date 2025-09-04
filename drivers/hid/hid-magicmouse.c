@@ -387,7 +387,7 @@ static int magicmouse_raw_event(struct hid_device *hdev,
 		magicmouse_raw_event(hdev, report, data + 2, data[1]);
 		magicmouse_raw_event(hdev, report, data + 2 + data[1],
 			size - 2 - data[1]);
-		return 0;
+		break;
 	default:
 		return 0;
 	}
@@ -597,7 +597,7 @@ static int magicmouse_probe(struct hid_device *hdev,
 	if (id->vendor == USB_VENDOR_ID_APPLE &&
 	    id->product == USB_DEVICE_ID_APPLE_MAGICTRACKPAD2 &&
 	    hdev->type != HID_TYPE_USBMOUSE)
-		return -ENODEV;
+		return 0;
 
 	msc = devm_kzalloc(&hdev->dev, sizeof(*msc), GFP_KERNEL);
 	if (msc == NULL) {

@@ -26,6 +26,7 @@ BASE_DEFCONFIG=${KERN_SRC}/arch/${ARCH}/configs/${2:-gki_defconfig}
 QCOM_GKI_FRAG=${CONFIGS_DIR}/${PLATFORM_NAME}_GKI.config
 QCOM_QGKI_FRAG=${CONFIGS_DIR}/${PLATFORM_NAME}_QGKI.config
 QCOM_DEBUG_FRAG=${CONFIGS_DIR}/${PLATFORM_NAME}_debug.config
+QCOM_SMT_FRAG=${CONFIGS_DIR}/${PLATFORM_NAME}_smt.config
 
 # For user variant build merge debugfs.config fragment.
 if [ ${TARGET_BUILD_VARIANT} == "user" ]; then

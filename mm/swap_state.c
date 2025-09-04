@@ -423,8 +423,7 @@ struct page *__read_swap_cache_async(swp_entry_t entry, gfp_t gfp_mask,
 					gfp_mask & GFP_RECLAIM_MASK);
 		if (likely(!err)) {
 			/* Initiate read into locked page */
-			// modify for google MLRU
-			// SetPageWorkingset(new_page);
+			SetPageWorkingset(new_page);
 			lru_cache_add_anon(new_page);
 			*new_page_allocated = true;
 			return new_page;
@@ -512,11 +511,10 @@ static unsigned long swapin_nr_pages(unsigned long offset)
 		return 1;
 
 	hits = atomic_xchg(&swapin_readahead_hits, 0);
-	pages = __swapin_nr_pages(READ_ONCE(prev_offset), offset, hits,
-				  max_pages,
+	pages = __swapin_nr_pages(prev_offset, offset, hits, max_pages,
 				  atomic_read(&last_readahead_pages));
 	if (!hits)
-		WRITE_ONCE(prev_offset, offset);
+		prev_offset = offset;
 	atomic_set(&last_readahead_pages, pages);
 
 	return pages;

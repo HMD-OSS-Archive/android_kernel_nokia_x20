@@ -468,9 +468,7 @@ static int scan_pool(struct ubi_device *ubi, struct ubi_attach_info *ai,
 			if (err == UBI_IO_FF_BITFLIPS)
 				scrub = 1;
 
-			ret = add_aeb(ai, free, pnum, ec, scrub);
-			if (ret)
-				goto out;
+			add_aeb(ai, free, pnum, ec, scrub);
 			continue;
 		} else if (err == 0 || err == UBI_IO_BITFLIPS) {
 			dbg_bld("Found non empty PEB:%i in pool", pnum);
@@ -640,10 +638,8 @@ static int ubi_attach_fastmap(struct ubi_device *ubi,
 		if (fm_pos >= fm_size)
 			goto fail_bad;
 
-		ret = add_aeb(ai, &ai->free, be32_to_cpu(fmec->pnum),
-			      be32_to_cpu(fmec->ec), 0);
-		if (ret)
-			goto fail;
+		add_aeb(ai, &ai->free, be32_to_cpu(fmec->pnum),
+			be32_to_cpu(fmec->ec), 0);
 	}
 
 	/* read EC values from used list */
@@ -653,10 +649,8 @@ static int ubi_attach_fastmap(struct ubi_device *ubi,
 		if (fm_pos >= fm_size)
 			goto fail_bad;
 
-		ret = add_aeb(ai, &used, be32_to_cpu(fmec->pnum),
-			      be32_to_cpu(fmec->ec), 0);
-		if (ret)
-			goto fail;
+		add_aeb(ai, &used, be32_to_cpu(fmec->pnum),
+			be32_to_cpu(fmec->ec), 0);
 	}
 
 	/* read EC values from scrub list */
@@ -666,10 +660,8 @@ static int ubi_attach_fastmap(struct ubi_device *ubi,
 		if (fm_pos >= fm_size)
 			goto fail_bad;
 
-		ret = add_aeb(ai, &used, be32_to_cpu(fmec->pnum),
-			      be32_to_cpu(fmec->ec), 1);
-		if (ret)
-			goto fail;
+		add_aeb(ai, &used, be32_to_cpu(fmec->pnum),
+			be32_to_cpu(fmec->ec), 1);
 	}
 
 	/* read EC values from erase list */
@@ -679,10 +671,8 @@ static int ubi_attach_fastmap(struct ubi_device *ubi,
 		if (fm_pos >= fm_size)
 			goto fail_bad;
 
-		ret = add_aeb(ai, &ai->erase, be32_to_cpu(fmec->pnum),
-			      be32_to_cpu(fmec->ec), 1);
-		if (ret)
-			goto fail;
+		add_aeb(ai, &ai->erase, be32_to_cpu(fmec->pnum),
+			be32_to_cpu(fmec->ec), 1);
 	}
 
 	ai->mean_ec = div_u64(ai->ec_sum, ai->ec_count);
@@ -1553,6 +1543,14 @@ int ubi_update_fastmap(struct ubi_device *ubi)
 		return 0;
 	}
 
+	ret = ubi_ensure_anchor_pebs(ubi);
+	if (ret) {
+		up_write(&ubi->fm_eba_sem);
+		up_write(&ubi->work_sem);
+		up_write(&ubi->fm_protect);
+		return ret;
+	}
+
 	new_fm = kzalloc(sizeof(*new_fm), GFP_KERNEL);
 	if (!new_fm) {
 		up_write(&ubi->fm_eba_sem);
@@ -1623,8 +1621,7 @@ int ubi_update_fastmap(struct ubi_device *ubi)
 	}
 
 	spin_lock(&ubi->wl_lock);
-	tmp_e = ubi->fm_anchor;
-	ubi->fm_anchor = NULL;
+	tmp_e = ubi_wl_get_fm_peb(ubi, 1);
 	spin_unlock(&ubi->wl_lock);
 
 	if (old_fm) {
@@ -1676,9 +1673,6 @@ out_unlock:
 	up_write(&ubi->work_sem);
 	up_write(&ubi->fm_protect);
 	kfree(old_fm);
-
-	ubi_ensure_anchor_pebs(ubi);
-
 	return ret;
 
 err:

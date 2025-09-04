@@ -91,7 +91,7 @@ static	void	dm_check_txrateandretrycount(struct net_device *dev);
 
 /*---------------------Define local function prototype-----------------------*/
 
-/*---------------------Define of Tx Power Control For Near/Far Range --------*/   /*Add by Jacken 2008/02/18 */
+/*---------------------Define of Tx Power Control For Near/Far Range --------*/
 static	void	dm_init_dynamic_txpower(struct net_device *dev);
 static	void	dm_dynamic_txpower(struct net_device *dev);
 
@@ -197,7 +197,7 @@ void hal_dm_watchdog(struct net_device *dev)
 
 	/*static u8	previous_bssid[6] ={0};*/
 
-	/*Add by amy 2008/05/15 ,porting from windows code.*/
+
 	dm_check_rate_adaptive(dev);
 	dm_dynamic_txpower(dev);
 	dm_check_txrateandretrycount(dev);
@@ -208,7 +208,7 @@ void hal_dm_watchdog(struct net_device *dev)
 	dm_check_rx_path_selection(dev);
 	dm_check_fsync(dev);
 
-	/* Add by amy 2008-05-15 porting from windows code. */
+
 	dm_check_pbc_gpio(dev);
 	dm_send_rssi_tofw(dev);
 	dm_ctstoself(dev);
@@ -2585,20 +2585,19 @@ static void dm_init_fsync(struct net_device *dev)
 	priv->ieee80211->fsync_seconddiff_ratethreshold = 200;
 	priv->ieee80211->fsync_state = Default_Fsync;
 	priv->framesyncMonitor = 1;	/* current default 0xc38 monitor on */
-	INIT_DELAYED_WORK(&priv->fsync_work, dm_fsync_work_callback);
+	timer_setup(&priv->fsync_timer, dm_fsync_timer_callback, 0);
 }
 
 static void dm_deInit_fsync(struct net_device *dev)
 {
 	struct r8192_priv *priv = ieee80211_priv(dev);
 
-	cancel_delayed_work_sync(&priv->fsync_work);
+	del_timer_sync(&priv->fsync_timer);
 }
 
-void dm_fsync_work_callback(struct work_struct *work)
+void dm_fsync_timer_callback(struct timer_list *t)
 {
-	struct r8192_priv *priv =
-	    container_of(work, struct r8192_priv, fsync_work.work);
+	struct r8192_priv *priv = from_timer(priv, t, fsync_timer);
 	struct net_device *dev = priv->ieee80211->dev;
 	u32 rate_index, rate_count = 0, rate_count_diff = 0;
 	bool		bSwitchFromCountDiff = false;
@@ -2665,16 +2664,17 @@ void dm_fsync_work_callback(struct work_struct *work)
 			}
 		}
 		if (bDoubleTimeInterval) {
-			cancel_delayed_work_sync(&priv->fsync_work);
-			schedule_delayed_work(&priv->fsync_work,
-					      msecs_to_jiffies(priv
-					      ->ieee80211->fsync_time_interval *
-					      priv->ieee80211->fsync_multiple_timeinterval));
+			if (timer_pending(&priv->fsync_timer))
+				del_timer_sync(&priv->fsync_timer);
+			priv->fsync_timer.expires = jiffies +
+				msecs_to_jiffies(priv->ieee80211->fsync_time_interval*priv->ieee80211->fsync_multiple_timeinterval);
+			add_timer(&priv->fsync_timer);
 		} else {
-			cancel_delayed_work_sync(&priv->fsync_work);
-			schedule_delayed_work(&priv->fsync_work,
-					      msecs_to_jiffies(priv
-					      ->ieee80211->fsync_time_interval));
+			if (timer_pending(&priv->fsync_timer))
+				del_timer_sync(&priv->fsync_timer);
+			priv->fsync_timer.expires = jiffies +
+				msecs_to_jiffies(priv->ieee80211->fsync_time_interval);
+			add_timer(&priv->fsync_timer);
 		}
 	} else {
 		/* Let Register return to default value; */
@@ -2702,7 +2702,7 @@ static void dm_EndSWFsync(struct net_device *dev)
 	struct r8192_priv *priv = ieee80211_priv(dev);
 
 	RT_TRACE(COMP_HALDM, "%s\n", __func__);
-	cancel_delayed_work_sync(&priv->fsync_work);
+	del_timer_sync(&(priv->fsync_timer));
 
 	/* Let Register return to default value; */
 	if (priv->bswitch_fsync) {
@@ -2744,9 +2744,11 @@ static void dm_StartSWFsync(struct net_device *dev)
 		if (priv->ieee80211->fsync_rate_bitmap &  rateBitmap)
 			priv->rate_record += priv->stats.received_rate_histogram[1][rateIndex];
 	}
-	cancel_delayed_work_sync(&priv->fsync_work);
-	schedule_delayed_work(&priv->fsync_work,
-			      msecs_to_jiffies(priv->ieee80211->fsync_time_interval));
+	if (timer_pending(&priv->fsync_timer))
+		del_timer_sync(&priv->fsync_timer);
+	priv->fsync_timer.expires = jiffies +
+			msecs_to_jiffies(priv->ieee80211->fsync_time_interval);
+	add_timer(&priv->fsync_timer);
 
 	write_nic_dword(dev, rOFDM0_RxDetector2, 0x465c12cd);
 

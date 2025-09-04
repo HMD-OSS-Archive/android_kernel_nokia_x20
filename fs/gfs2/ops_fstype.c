@@ -169,22 +169,15 @@ static int gfs2_check_sb(struct gfs2_sbd *sdp, int silent)
 		return -EINVAL;
 	}
 
-	if (sb->sb_fs_format != GFS2_FORMAT_FS ||
-	    sb->sb_multihost_format != GFS2_FORMAT_MULTI) {
-		fs_warn(sdp, "Unknown on-disk format, unable to mount\n");
-		return -EINVAL;
-	}
+	/*  If format numbers match exactly, we're done.  */
 
-	if (sb->sb_bsize < 512 || sb->sb_bsize > PAGE_SIZE ||
-	    (sb->sb_bsize & (sb->sb_bsize - 1))) {
-		pr_warn("Invalid superblock size\n");
-		return -EINVAL;
-	}
-	if (sb->sb_bsize_shift != ffs(sb->sb_bsize) - 1) {
-		pr_warn("Invalid block size shift\n");
-		return -EINVAL;
-	}
-	return 0;
+	if (sb->sb_fs_format == GFS2_FORMAT_FS &&
+	    sb->sb_multihost_format == GFS2_FORMAT_MULTI)
+		return 0;
+
+	fs_warn(sdp, "Unknown on-disk format, unable to mount\n");
+
+	return -EINVAL;
 }
 
 static void end_bio_io_page(struct bio *bio)
@@ -380,10 +373,8 @@ static int init_names(struct gfs2_sbd *sdp, int silent)
 	if (!table[0])
 		table = sdp->sd_vfs->s_id;
 
-	BUILD_BUG_ON(GFS2_LOCKNAME_LEN > GFS2_FSNAME_LEN);
-
-	strscpy(sdp->sd_proto_name, proto, GFS2_LOCKNAME_LEN);
-	strscpy(sdp->sd_table_name, table, GFS2_LOCKNAME_LEN);
+	strlcpy(sdp->sd_proto_name, proto, GFS2_FSNAME_LEN);
+	strlcpy(sdp->sd_table_name, table, GFS2_FSNAME_LEN);
 
 	table = sdp->sd_table_name;
 	while ((table = strchr(table, '/')))
@@ -1103,14 +1094,26 @@ static int gfs2_fill_super(struct super_block *sb, struct fs_context *fc)
 	}
 
 	error = init_names(sdp, silent);
-	if (error)
-		goto fail_free;
+	if (error) {
+		/* In this case, we haven't initialized sysfs, so we have to
+		   manually free the sdp. */
+		free_sbd(sdp);
+		sb->s_fs_info = NULL;
+		return error;
+	}
 
 	snprintf(sdp->sd_fsname, sizeof(sdp->sd_fsname), "%s", sdp->sd_table_name);
 
 	error = gfs2_sys_fs_add(sdp);
+	/*
+	 * If we hit an error here, gfs2_sys_fs_add will have called function
+	 * kobject_put which causes the sysfs usage count to go to zero, which
+	 * causes sysfs to call function gfs2_sbd_release, which frees sdp.
+	 * Subsequent error paths here will call gfs2_sys_fs_del, which also
+	 * kobject_put to free sdp.
+	 */
 	if (error)
-		goto fail_free;
+		return error;
 
 	gfs2_create_debugfs_file(sdp);
 
@@ -1207,9 +1210,9 @@ fail_lm:
 	gfs2_lm_unmount(sdp);
 fail_debug:
 	gfs2_delete_debugfs_file(sdp);
+	/* gfs2_sys_fs_del must be the last thing we do, since it causes
+	 * sysfs to call function gfs2_sbd_release, which frees sdp. */
 	gfs2_sys_fs_del(sdp);
-fail_free:
-	free_sbd(sdp);
 	sb->s_fs_info = NULL;
 	return error;
 }
@@ -1354,13 +1357,13 @@ static int gfs2_parse_param(struct fs_context *fc, struct fs_parameter *param)
 
 	switch (o) {
 	case Opt_lockproto:
-		strscpy(args->ar_lockproto, param->string, GFS2_LOCKNAME_LEN);
+		strlcpy(args->ar_lockproto, param->string, GFS2_LOCKNAME_LEN);
 		break;
 	case Opt_locktable:
-		strscpy(args->ar_locktable, param->string, GFS2_LOCKNAME_LEN);
+		strlcpy(args->ar_locktable, param->string, GFS2_LOCKNAME_LEN);
 		break;
 	case Opt_hostdata:
-		strscpy(args->ar_hostdata, param->string, GFS2_LOCKNAME_LEN);
+		strlcpy(args->ar_hostdata, param->string, GFS2_LOCKNAME_LEN);
 		break;
 	case Opt_spectator:
 		args->ar_spectator = 1;

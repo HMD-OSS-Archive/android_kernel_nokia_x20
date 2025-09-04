@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-only
-/* Copyright (c) 2018-2021, The Linux Foundation. All rights reserved. */
+/* Copyright (c) 2018-2020, The Linux Foundation. All rights reserved. */
 
 #include <linux/debugfs.h>
 #include <linux/device.h>
@@ -265,19 +265,6 @@ enum mhi_dev_state mhi_get_mhi_state(struct mhi_controller *mhi_cntrl)
 	return ret ? MHI_STATE_MAX : state;
 }
 EXPORT_SYMBOL(mhi_get_mhi_state);
-
-void mhi_soc_reset(struct mhi_controller *mhi_cntrl)
-{
-	if (mhi_cntrl->reset) {
-		mhi_cntrl->reset(mhi_cntrl);
-		return;
-	}
-
-	/* Generic MHI SoC reset */
-	mhi_write_reg(mhi_cntrl, mhi_cntrl->regs, MHI_SOC_RESET_REQ_OFFSET,
-		      MHI_SOC_RESET_REQ);
-}
-EXPORT_SYMBOL(mhi_soc_reset);
 
 int mhi_queue_sclist(struct mhi_device *mhi_dev,
 		     struct mhi_chan *mhi_chan,
@@ -1403,12 +1390,6 @@ int mhi_process_tsync_ev_ring(struct mhi_controller *mhi_cntrl,
 	int ret = 0;
 
 	spin_lock_bh(&mhi_event->lock);
-	if (!is_valid_ring_ptr(ev_ring, er_ctxt->rp)) {
-		MHI_ERR("Event ring rp points outside of the event ring or unalign rp %llx\n",
-				er_ctxt->rp);
-		spin_unlock_bh(&mhi_event->lock);
-		return 0;
-	}
 	dev_rp = mhi_to_virtual(ev_ring, er_ctxt->rp);
 	if (ev_ring->rp == dev_rp) {
 		spin_unlock_bh(&mhi_event->lock);
@@ -1502,14 +1483,8 @@ int mhi_process_bw_scale_ev_ring(struct mhi_controller *mhi_cntrl,
 	int ret = 0;
 
 	spin_lock_bh(&mhi_event->lock);
-	if (!is_valid_ring_ptr(ev_ring, er_ctxt->rp)) {
-		MHI_ERR("Event ring rp points outside of the event ring or unalign rp %llx\n",
-				er_ctxt->rp);
-		spin_unlock_bh(&mhi_event->lock);
-		return 0;
-	}
-
 	dev_rp = mhi_to_virtual(ev_ring, er_ctxt->rp);
+
 	if (ev_ring->rp == dev_rp) {
 		spin_unlock_bh(&mhi_event->lock);
 		goto exit_bw_scale_process;

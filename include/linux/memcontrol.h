@@ -334,11 +334,6 @@ struct mem_cgroup {
 	struct deferred_split deferred_split_queue;
 #endif
 
-#ifdef CONFIG_LRU_GEN
-	/* per-memcg mm_struct list */
-	struct lru_gen_mm_list mm_list;
-#endif
-
 	struct mem_cgroup_per_node *nodeinfo[0];
 	/* WARNING: nodeinfo must be the last member here */
 };
@@ -361,54 +356,17 @@ static inline bool mem_cgroup_disabled(void)
 	return !cgroup_subsys_enabled(memory_cgrp_subsys);
 }
 
-static inline void mem_cgroup_protection(struct mem_cgroup *root,
-					 struct mem_cgroup *memcg,
-					 unsigned long *min,
-					 unsigned long *low)
+static inline unsigned long mem_cgroup_protection(struct mem_cgroup *memcg,
+						  bool in_low_reclaim)
 {
-	*min = *low = 0;
-
 	if (mem_cgroup_disabled())
-		return;
+		return 0;
 
-	/*
-	 * There is no reclaim protection applied to a targeted reclaim.
-	 * We are special casing this specific case here because
-	 * mem_cgroup_protected calculation is not robust enough to keep
-	 * the protection invariant for calculated effective values for
-	 * parallel reclaimers with different reclaim target. This is
-	 * especially a problem for tail memcgs (as they have pages on LRU)
-	 * which would want to have effective values 0 for targeted reclaim
-	 * but a different value for external reclaim.
-	 *
-	 * Example
-	 * Let's have global and A's reclaim in parallel:
-	 *  |
-	 *  A (low=2G, usage = 3G, max = 3G, children_low_usage = 1.5G)
-	 *  |\
-	 *  | C (low = 1G, usage = 2.5G)
-	 *  B (low = 1G, usage = 0.5G)
-	 *
-	 * For the global reclaim
-	 * A.elow = A.low
-	 * B.elow = min(B.usage, B.low) because children_low_usage <= A.elow
-	 * C.elow = min(C.usage, C.low)
-	 *
-	 * With the effective values resetting we have A reclaim
-	 * A.elow = 0
-	 * B.elow = B.low
-	 * C.elow = C.low
-	 *
-	 * If the global reclaim races with A's reclaim then
-	 * B.elow = C.elow = 0 because children_low_usage > A.elow)
-	 * is possible and reclaiming B would be violating the protection.
-	 *
-	 */
-	if (root == memcg)
-		return;
+	if (in_low_reclaim)
+		return READ_ONCE(memcg->memory.emin);
 
-	*min = READ_ONCE(memcg->memory.emin);
-	*low = READ_ONCE(memcg->memory.elow);
+	return max(READ_ONCE(memcg->memory.emin),
+		   READ_ONCE(memcg->memory.elow));
 }
 
 enum mem_cgroup_protection mem_cgroup_protected(struct mem_cgroup *root,
@@ -664,24 +622,6 @@ static inline unsigned long memcg_page_state_local(struct mem_cgroup *memcg,
 
 void __mod_memcg_state(struct mem_cgroup *memcg, int idx, int val);
 
-// modify for google mLRU
-/* try to stablize page_memcg() for all the pages in a memcg */
-static inline bool mem_cgroup_trylock_pages(struct mem_cgroup *memcg)
-{
-	rcu_read_lock();
-
-	if (mem_cgroup_disabled() || !atomic_read(&memcg->moving_account))
-		return true;
-
-	rcu_read_unlock();
-	return false;
-}
-
-static inline void mem_cgroup_unlock_pages(void)
-{
-	rcu_read_unlock();
-}
-
 /* idx can be of type enum memcg_stat_item or node_stat_item */
 static inline void mod_memcg_state(struct mem_cgroup *memcg,
 				   int idx, int val)
@@ -907,12 +847,10 @@ static inline void memcg_memory_event_mm(struct mm_struct *mm,
 {
 }
 
-static inline void mem_cgroup_protection(struct mem_cgroup *root,
-					 struct mem_cgroup *memcg,
-					 unsigned long *min,
-					 unsigned long *low)
+static inline unsigned long mem_cgroup_protection(struct mem_cgroup *memcg,
+						  bool in_low_reclaim)
 {
-	*min = *low = 0;
+	return 0;
 }
 
 static inline enum mem_cgroup_protection mem_cgroup_protected(
@@ -1080,19 +1018,6 @@ static inline void __unlock_page_memcg(struct mem_cgroup *memcg)
 
 static inline void unlock_page_memcg(struct page *page)
 {
-}
-
-// modify for google MLRU
-static inline bool mem_cgroup_trylock_pages(struct mem_cgroup *memcg)
-{
-	/* to match page_memcg_rcu() */
-	rcu_read_lock();
-	return true;
-}
-
-static inline void mem_cgroup_unlock_pages(void)
-{
-	rcu_read_unlock();
 }
 
 static inline void mem_cgroup_handle_over_high(void)

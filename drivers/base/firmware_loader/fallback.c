@@ -86,11 +86,12 @@ static void __fw_load_abort(struct fw_priv *fw_priv)
 {
 	/*
 	 * There is a small window in which user can write to 'loading'
-	 * between loading done/aborted and disappearance of 'loading'
+	 * between loading done and disappearance of 'loading'
 	 */
-	if (fw_state_is_aborted(fw_priv) || fw_sysfs_done(fw_priv))
+	if (fw_sysfs_done(fw_priv))
 		return;
 
+	list_del_init(&fw_priv->pending_list);
 	fw_state_aborted(fw_priv);
 }
 
@@ -103,7 +104,7 @@ static void fw_load_abort(struct fw_sysfs *fw_sysfs)
 
 static LIST_HEAD(pending_fw_head);
 
-void kill_pending_fw_fallback_reqs(bool kill_all)
+void kill_pending_fw_fallback_reqs(bool only_kill_custom)
 {
 	struct fw_priv *fw_priv;
 	struct fw_priv *next;
@@ -111,13 +112,9 @@ void kill_pending_fw_fallback_reqs(bool kill_all)
 	mutex_lock(&fw_lock);
 	list_for_each_entry_safe(fw_priv, next, &pending_fw_head,
 				 pending_list) {
-		if (kill_all || !fw_priv->need_uevent)
+		if (!fw_priv->need_uevent || !only_kill_custom)
 			 __fw_load_abort(fw_priv);
 	}
-
-	if (kill_all)
-		fw_load_abort_all = true;
-
 	mutex_unlock(&fw_lock);
 }
 
@@ -219,7 +216,7 @@ static ssize_t firmware_loading_show(struct device *dev,
 		loading = fw_sysfs_loading(fw_sysfs->fw_priv);
 	mutex_unlock(&fw_lock);
 
-	return sysfs_emit(buf, "%d\n", loading);
+	return sprintf(buf, "%d\n", loading);
 }
 
 /**
@@ -280,6 +277,7 @@ static ssize_t firmware_loading_store(struct device *dev,
 			 * Same logic as fw_load_abort, only the DONE bit
 			 * is ignored and we set ABORT only on failure.
 			 */
+			list_del_init(&fw_priv->pending_list);
 			if (rc) {
 				fw_state_aborted(fw_priv);
 				written = rc;
@@ -514,11 +512,6 @@ static int fw_load_sysfs_fallback(struct fw_sysfs *fw_sysfs,
 	}
 
 	mutex_lock(&fw_lock);
-	if (fw_load_abort_all || fw_state_is_aborted(fw_priv)) {
-		mutex_unlock(&fw_lock);
-		retval = -EINTR;
-		goto out;
-	}
 	list_add(&fw_priv->pending_list, &pending_fw_head);
 	mutex_unlock(&fw_lock);
 
@@ -541,10 +534,11 @@ static int fw_load_sysfs_fallback(struct fw_sysfs *fw_sysfs,
 	if (fw_state_is_aborted(fw_priv)) {
 		if (retval == -ERESTARTSYS)
 			retval = -EINTR;
+		else
+			retval = -EAGAIN;
 	} else if (fw_priv->is_paged_buf && !fw_priv->data)
 		retval = -ENOMEM;
 
-out:
 	device_del(f_dev);
 err_put_dev:
 	put_device(f_dev);
@@ -650,13 +644,12 @@ int firmware_fallback_sysfs(struct firmware *fw, const char *name,
 {
 	if (!fw_run_sysfs_fallback(opt_flags))
 		return ret;
-/*
+
 	if (!(opt_flags & FW_OPT_NO_WARN))
 		dev_warn(device, "Falling back to sysfs fallback for: %s\n",
 				 name);
 	else
 		dev_dbg(device, "Falling back to sysfs fallback for: %s\n",
 				name);
-*/
 	return fw_load_from_user_helper(fw, name, device, opt_flags);
 }

@@ -261,11 +261,7 @@ static inline struct fwnode_handle *irq_domain_alloc_fwnode(phys_addr_t *pa)
 }
 
 void irq_domain_free_fwnode(struct fwnode_handle *fwnode);
-#ifdef __GENKSYMS__	/* Android KABI hack to preserve CRC checker */
 struct irq_domain *__irq_domain_add(struct fwnode_handle *fwnode, int size,
-#else
-struct irq_domain *__irq_domain_add(struct fwnode_handle *fwnode, unsigned int size,
-#endif
 				    irq_hw_number_t hwirq_max, int direct_max,
 				    const struct irq_domain_ops *ops,
 				    void *host_data);
@@ -393,10 +389,8 @@ extern void irq_domain_associate_many(struct irq_domain *domain,
 extern void irq_domain_disassociate(struct irq_domain *domain,
 				    unsigned int irq);
 
-extern unsigned int irq_create_mapping_affinity(struct irq_domain *host,
-				      irq_hw_number_t hwirq,
-				      const struct irq_affinity_desc *affinity);
-unsigned int irq_create_mapping(struct irq_domain *host, irq_hw_number_t hwirq);
+extern unsigned int irq_create_mapping(struct irq_domain *host,
+				       irq_hw_number_t hwirq);
 extern unsigned int irq_create_fwspec_mapping(struct irq_fwspec *fwspec);
 extern void irq_dispose_mapping(unsigned int virq);
 

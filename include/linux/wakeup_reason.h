@@ -26,10 +26,6 @@ void log_threaded_irq_wakeup_reason(int irq, int parent_irq);
 void log_suspend_abort_reason(const char *fmt, ...);
 void log_abnormal_wakeup_reason(const char *fmt, ...);
 void clear_wakeup_reasons(void);
-// Add-begin by ning.wei for add more detail for wakeup reason
-void msm_set_wakeup_reason_to_resume_irq(void);
-void log_rtc_addition_info(const char *fmt, ...);
-// Add-end by ning.wei for add more detail for wakeup reason
 #else
 static inline void log_irq_wakeup_reason(int irq) { }
 static inline void log_threaded_irq_wakeup_reason(int irq, int parent_irq) { }

@@ -187,7 +187,3 @@ obj-$(CONFIG_GNSS)		+= gnss/
 obj-$(CONFIG_INTERCONNECT)	+= interconnect/
 obj-$(CONFIG_COUNTER)		+= counter/
 obj-y				+= chino-e/
-obj-$(CONFIG_SILEAD_FP_PLATFORM)		+= silead/
-ifeq ($(BUILD_PUNISHER_PROJECT),true)
-obj-y    += ../tinno/common_features/
-endif

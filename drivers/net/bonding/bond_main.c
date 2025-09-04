@@ -792,15 +792,15 @@ static bool bond_should_notify_peers(struct bonding *bond)
 	slave = rcu_dereference(bond->curr_active_slave);
 	rcu_read_unlock();
 
+	netdev_dbg(bond->dev, "bond_should_notify_peers: slave %s\n",
+		   slave ? slave->dev->name : "NULL");
+
 	if (!slave || !bond->send_peer_notif ||
 	    bond->send_peer_notif %
 	    max(1, bond->params.peer_notif_delay) != 0 ||
 	    !netif_carrier_ok(bond->dev) ||
 	    test_bit(__LINK_STATE_LINKWATCH_PENDING, &slave->dev->state))
 		return false;
-
-	netdev_dbg(bond->dev, "bond_should_notify_peers: slave %s\n",
-		   slave ? slave->dev->name : "NULL");
 
 	return true;
 }
@@ -1148,16 +1148,10 @@ static void bond_setup_by_slave(struct net_device *bond_dev,
 
 	bond_dev->type		    = slave_dev->type;
 	bond_dev->hard_header_len   = slave_dev->hard_header_len;
-	bond_dev->needed_headroom   = slave_dev->needed_headroom;
 	bond_dev->addr_len	    = slave_dev->addr_len;
 
 	memcpy(bond_dev->broadcast, slave_dev->broadcast,
 		slave_dev->addr_len);
-
-	if (slave_dev->flags & IFF_POINTOPOINT) {
-		bond_dev->flags &= ~(IFF_BROADCAST | IFF_MULTICAST);
-		bond_dev->flags |= (IFF_POINTOPOINT | IFF_NOARP);
-	}
 }
 
 /* On bonding slaves other than the currently active slave, suppress
@@ -1224,7 +1218,7 @@ static rx_handler_result_t bond_handle_frame(struct sk_buff **pskb)
 	skb->dev = bond->dev;
 
 	if (BOND_MODE(bond) == BOND_MODE_ALB &&
-	    netif_is_bridge_port(bond->dev) &&
+	    bond->dev->priv_flags & IFF_BRIDGE_PORT &&
 	    skb->pkt_type == PACKET_HOST) {
 
 		if (unlikely(skb_cow_head(skb,
@@ -1298,39 +1292,7 @@ static void bond_upper_dev_unlink(struct bonding *bond, struct slave *slave)
 	slave->dev->flags &= ~IFF_SLAVE;
 }
 
-static void slave_kobj_release(struct kobject *kobj)
-{
-	struct slave *slave = to_slave(kobj);
-	struct bonding *bond = bond_get_bond_by_slave(slave);
-
-	cancel_delayed_work_sync(&slave->notify_work);
-	if (BOND_MODE(bond) == BOND_MODE_8023AD)
-		kfree(SLAVE_AD_INFO(slave));
-
-	kfree(slave);
-}
-
-static struct kobj_type slave_ktype = {
-	.release = slave_kobj_release,
-#ifdef CONFIG_SYSFS
-	.sysfs_ops = &slave_sysfs_ops,
-#endif
-};
-
-static int bond_kobj_init(struct slave *slave)
-{
-	int err;
-
-	err = kobject_init_and_add(&slave->kobj, &slave_ktype,
-				   &(slave->dev->dev.kobj), "bonding_slave");
-	if (err)
-		kobject_put(&slave->kobj);
-
-	return err;
-}
-
-static struct slave *bond_alloc_slave(struct bonding *bond,
-				      struct net_device *slave_dev)
+static struct slave *bond_alloc_slave(struct bonding *bond)
 {
 	struct slave *slave = NULL;
 
@@ -1338,23 +1300,28 @@ static struct slave *bond_alloc_slave(struct bonding *bond,
 	if (!slave)
 		return NULL;
 
-	slave->bond = bond;
-	slave->dev = slave_dev;
-	INIT_DELAYED_WORK(&slave->notify_work, bond_netdev_notify_work);
-
-	if (bond_kobj_init(slave))
-		return NULL;
-
 	if (BOND_MODE(bond) == BOND_MODE_8023AD) {
 		SLAVE_AD_INFO(slave) = kzalloc(sizeof(struct ad_slave_info),
 					       GFP_KERNEL);
 		if (!SLAVE_AD_INFO(slave)) {
-			kobject_put(&slave->kobj);
+			kfree(slave);
 			return NULL;
 		}
 	}
+	INIT_DELAYED_WORK(&slave->notify_work, bond_netdev_notify_work);
 
 	return slave;
+}
+
+static void bond_free_slave(struct slave *slave)
+{
+	struct bonding *bond = bond_get_bond_by_slave(slave);
+
+	cancel_delayed_work_sync(&slave->notify_work);
+	if (BOND_MODE(bond) == BOND_MODE_8023AD)
+		kfree(SLAVE_AD_INFO(slave));
+
+	kfree(slave);
 }
 
 static void bond_fill_ifbond(struct bonding *bond, struct ifbond *info)
@@ -1540,12 +1507,14 @@ int bond_enslave(struct net_device *bond_dev, struct net_device *slave_dev,
 			goto err_undo_flags;
 	}
 
-	new_slave = bond_alloc_slave(bond, slave_dev);
+	new_slave = bond_alloc_slave(bond);
 	if (!new_slave) {
 		res = -ENOMEM;
 		goto err_undo_flags;
 	}
 
+	new_slave->bond = bond;
+	new_slave->dev = slave_dev;
 	/* Set the new_slave's queue_id to be zero.  Queue ID mapping
 	 * is set via sysfs or module option if desired.
 	 */
@@ -1867,7 +1836,7 @@ err_restore_mtu:
 	dev_set_mtu(slave_dev, new_slave->original_mtu);
 
 err_free:
-	kobject_put(&new_slave->kobj);
+	bond_free_slave(new_slave);
 
 err_undo_flags:
 	/* Enslave of first slave has failed and we need to fix master's mac */
@@ -1931,6 +1900,7 @@ static int __bond_release_one(struct net_device *bond_dev,
 	/* recompute stats just before removing the slave */
 	bond_get_stats(bond->dev, &bond->bond_stats);
 
+	bond_upper_dev_unlink(bond, slave);
 	/* unregister rx_handler early so bond_handle_frame wouldn't be called
 	 * for this slave anymore.
 	 */
@@ -1938,8 +1908,6 @@ static int __bond_release_one(struct net_device *bond_dev,
 
 	if (BOND_MODE(bond) == BOND_MODE_8023AD)
 		bond_3ad_unbind_slave(slave);
-
-	bond_upper_dev_unlink(bond, slave);
 
 	if (bond_mode_can_use_xmit_hash(bond))
 		bond_update_slave_arr(bond, slave);
@@ -1984,9 +1952,10 @@ static int __bond_release_one(struct net_device *bond_dev,
 		bond_select_active_slave(bond);
 	}
 
-	bond_set_carrier(bond);
-	if (!bond_has_slaves(bond))
+	if (!bond_has_slaves(bond)) {
+		bond_set_carrier(bond);
 		eth_hw_addr_random(bond_dev);
+	}
 
 	unblock_netpoll_tx();
 	synchronize_rcu();
@@ -2047,7 +2016,7 @@ static int __bond_release_one(struct net_device *bond_dev,
 	if (!netif_is_bond_master(slave_dev))
 		slave_dev->priv_flags &= ~IFF_BONDING;
 
-	kobject_put(&slave->kobj);
+	bond_free_slave(slave);
 
 	return 0;
 }
@@ -2107,21 +2076,12 @@ static int bond_slave_info_query(struct net_device *bond_dev, struct ifslave *in
 /* called with rcu_read_lock() */
 static int bond_miimon_inspect(struct bonding *bond)
 {
-	bool ignore_updelay = false;
 	int link_state, commit = 0;
 	struct list_head *iter;
 	struct slave *slave;
+	bool ignore_updelay;
 
-	if (BOND_MODE(bond) == BOND_MODE_ACTIVEBACKUP) {
-		ignore_updelay = !rcu_dereference(bond->curr_active_slave);
-	} else {
-		struct bond_up_slave *usable_slaves;
-
-		usable_slaves = rcu_dereference(bond->usable_slaves);
-
-		if (usable_slaves && usable_slaves->count == 0)
-			ignore_updelay = true;
-	}
+	ignore_updelay = !rcu_dereference(bond->curr_active_slave);
 
 	bond_for_each_slave_rcu(bond, slave, iter) {
 		bond_propose_link_state(slave, BOND_LINK_NOCHANGE);
@@ -3085,11 +3045,9 @@ re_arm:
 		if (!rtnl_trylock())
 			return;
 
-		if (should_notify_peers) {
-			bond->send_peer_notif--;
+		if (should_notify_peers)
 			call_netdevice_notifiers(NETDEV_NOTIFY_PEERS,
 						 bond->dev);
-		}
 		if (should_notify_rtnl) {
 			bond_slave_state_notify(bond);
 			bond_slave_link_notify(bond);
@@ -3244,11 +3202,7 @@ static int bond_slave_netdev_event(unsigned long event,
 		unblock_netpoll_tx();
 		break;
 	case NETDEV_FEAT_CHANGE:
-		if (!bond->notifier_ctx) {
-			bond->notifier_ctx = true;
-			bond_compute_features(bond);
-			bond->notifier_ctx = false;
-		}
+		bond_compute_features(bond);
 		break;
 	case NETDEV_RESEND_IGMP:
 		/* Propagate to master device */
@@ -4058,29 +4012,6 @@ err:
 	bond_slave_arr_work_rearm(bond, 1);
 }
 
-static void bond_skip_slave(struct bond_up_slave *slaves,
-			    struct slave *skipslave)
-{
-	int idx;
-
-	/* Rare situation where caller has asked to skip a specific
-	 * slave but allocation failed (most likely!). BTW this is
-	 * only possible when the call is initiated from
-	 * __bond_release_one(). In this situation; overwrite the
-	 * skipslave entry in the array with the last entry from the
-	 * array to avoid a situation where the xmit path may choose
-	 * this to-be-skipped slave to send a packet out.
-	 */
-	for (idx = 0; slaves && idx < slaves->count; idx++) {
-		if (skipslave == slaves->arr[idx]) {
-			slaves->arr[idx] =
-				slaves->arr[slaves->count - 1];
-			slaves->count--;
-			break;
-		}
-	}
-}
-
 /* Build the usable slaves array in control path for modes that use xmit-hash
  * to determine the slave interface -
  * (a) BOND_MODE_8023AD
@@ -4091,9 +4022,9 @@ static void bond_skip_slave(struct bond_up_slave *slaves,
  */
 int bond_update_slave_arr(struct bonding *bond, struct slave *skipslave)
 {
-	struct bond_up_slave *usable_slaves, *old_usable_slaves;
 	struct slave *slave;
 	struct list_head *iter;
+	struct bond_up_slave *new_arr, *old_arr;
 	int agg_id = 0;
 	int ret = 0;
 
@@ -4101,10 +4032,11 @@ int bond_update_slave_arr(struct bonding *bond, struct slave *skipslave)
 	WARN_ON(lockdep_is_held(&bond->mode_lock));
 #endif
 
-	usable_slaves = kzalloc(struct_size(usable_slaves, arr,
-					    bond->slave_cnt), GFP_KERNEL);
-	if (!usable_slaves) {
+	new_arr = kzalloc(offsetof(struct bond_up_slave, arr[bond->slave_cnt]),
+			  GFP_KERNEL);
+	if (!new_arr) {
 		ret = -ENOMEM;
+		pr_err("Failed to build slave-array.\n");
 		goto out;
 	}
 	if (BOND_MODE(bond) == BOND_MODE_8023AD) {
@@ -4112,14 +4044,14 @@ int bond_update_slave_arr(struct bonding *bond, struct slave *skipslave)
 
 		if (bond_3ad_get_active_agg_info(bond, &ad_info)) {
 			pr_debug("bond_3ad_get_active_agg_info failed\n");
-			kfree_rcu(usable_slaves, rcu);
+			kfree_rcu(new_arr, rcu);
 			/* No active aggragator means it's not safe to use
 			 * the previous array.
 			 */
-			old_usable_slaves = rtnl_dereference(bond->usable_slaves);
-			if (old_usable_slaves) {
-				RCU_INIT_POINTER(bond->usable_slaves, NULL);
-				kfree_rcu(old_usable_slaves, rcu);
+			old_arr = rtnl_dereference(bond->slave_arr);
+			if (old_arr) {
+				RCU_INIT_POINTER(bond->slave_arr, NULL);
+				kfree_rcu(old_arr, rcu);
 			}
 			goto out;
 		}
@@ -4139,20 +4071,37 @@ int bond_update_slave_arr(struct bonding *bond, struct slave *skipslave)
 			continue;
 
 		slave_dbg(bond->dev, slave->dev, "Adding slave to tx hash array[%d]\n",
-			  usable_slaves->count);
+			  new_arr->count);
 
-		usable_slaves->arr[usable_slaves->count++] = slave;
+		new_arr->arr[new_arr->count++] = slave;
 	}
 
-	old_usable_slaves = rtnl_dereference(bond->usable_slaves);
-	rcu_assign_pointer(bond->usable_slaves, usable_slaves);
-	if (old_usable_slaves)
-		kfree_rcu(old_usable_slaves, rcu);
+	old_arr = rtnl_dereference(bond->slave_arr);
+	rcu_assign_pointer(bond->slave_arr, new_arr);
+	if (old_arr)
+		kfree_rcu(old_arr, rcu);
 out:
-	if (ret != 0 && skipslave)
-		bond_skip_slave(rtnl_dereference(bond->usable_slaves),
-				skipslave);
+	if (ret != 0 && skipslave) {
+		int idx;
 
+		/* Rare situation where caller has asked to skip a specific
+		 * slave but allocation failed (most likely!). BTW this is
+		 * only possible when the call is initiated from
+		 * __bond_release_one(). In this situation; overwrite the
+		 * skipslave entry in the array with the last entry from the
+		 * array to avoid a situation where the xmit path may choose
+		 * this to-be-skipped slave to send a packet out.
+		 */
+		old_arr = rtnl_dereference(bond->slave_arr);
+		for (idx = 0; old_arr != NULL && idx < old_arr->count; idx++) {
+			if (skipslave == old_arr->arr[idx]) {
+				old_arr->arr[idx] =
+				    old_arr->arr[old_arr->count-1];
+				old_arr->count--;
+				break;
+			}
+		}
+	}
 	return ret;
 }
 
@@ -4168,7 +4117,7 @@ static netdev_tx_t bond_3ad_xor_xmit(struct sk_buff *skb,
 	struct bond_up_slave *slaves;
 	unsigned int count;
 
-	slaves = rcu_dereference(bond->usable_slaves);
+	slaves = rcu_dereference(bond->slave_arr);
 	count = slaves ? READ_ONCE(slaves->count) : 0;
 	if (likely(count)) {
 		slave = slaves->arr[bond_xmit_hash(bond, skb) % count];
@@ -4451,9 +4400,7 @@ void bond_setup(struct net_device *bond_dev)
 
 	bond_dev->hw_features = BOND_VLAN_FEATURES |
 				NETIF_F_HW_VLAN_CTAG_RX |
-				NETIF_F_HW_VLAN_CTAG_FILTER |
-				NETIF_F_HW_VLAN_STAG_RX |
-				NETIF_F_HW_VLAN_STAG_FILTER;
+				NETIF_F_HW_VLAN_CTAG_FILTER;
 
 	bond_dev->hw_features |= NETIF_F_GSO_ENCAP_ALL | NETIF_F_GSO_UDP_L4;
 	bond_dev->features |= bond_dev->hw_features;
@@ -4477,9 +4424,9 @@ static void bond_uninit(struct net_device *bond_dev)
 		__bond_release_one(bond_dev, slave->dev, true, true);
 	netdev_info(bond_dev, "Released all slaves\n");
 
-	arr = rtnl_dereference(bond->usable_slaves);
+	arr = rtnl_dereference(bond->slave_arr);
 	if (arr) {
-		RCU_INIT_POINTER(bond->usable_slaves, NULL);
+		RCU_INIT_POINTER(bond->slave_arr, NULL);
 		kfree_rcu(arr, rcu);
 	}
 
@@ -4888,8 +4835,6 @@ static int bond_init(struct net_device *bond_dev)
 	bond->wq = alloc_ordered_workqueue(bond_dev->name, WQ_MEM_RECLAIM);
 	if (!bond->wq)
 		return -ENOMEM;
-
-	bond->notifier_ctx = false;
 
 	spin_lock_init(&bond->stats_lock);
 	lockdep_register_key(&bond->stats_lock_key);

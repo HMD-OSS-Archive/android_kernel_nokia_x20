@@ -42,7 +42,6 @@ FEATURE_TESTS_BASIC :=                  \
         gtk2-infobar                    \
         libaudit                        \
         libbfd                          \
-        libbfd-buildid			\
         libcap                          \
         libelf                          \
         libelf-getphdrnum               \
@@ -53,6 +52,7 @@ FEATURE_TESTS_BASIC :=                  \
         numa_num_possible_cpus          \
         libperl                         \
         libpython                       \
+        libpython-version               \
         libslang                        \
         libslang-include-subdir         \
         libcrypto                       \
@@ -111,7 +111,6 @@ FEATURE_DISPLAY ?=              \
          gtk2                   \
          libaudit               \
          libbfd                 \
-         libbfd-buildid		\
          libcap                 \
          libelf                 \
          libnuma                \

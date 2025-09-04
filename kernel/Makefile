@@ -96,6 +96,7 @@ obj-$(CONFIG_TASK_DELAY_ACCT) += delayacct.o
 obj-$(CONFIG_TASKSTATS) += taskstats.o tsacct.o
 obj-$(CONFIG_TRACEPOINTS) += tracepoint.o
 obj-$(CONFIG_LATENCYTOP) += latencytop.o
+obj-$(CONFIG_ELFCORE) += elfcore.o
 obj-$(CONFIG_FUNCTION_TRACER) += trace/
 obj-$(CONFIG_TRACING) += trace/
 obj-$(CONFIG_TRACE_CLOCK) += trace/
@@ -119,8 +120,6 @@ obj-$(CONFIG_TORTURE_TEST) += torture.o
 obj-$(CONFIG_HAS_IOMEM) += iomem.o
 obj-$(CONFIG_RSEQ) += rseq.o
 
-obj-$(CONFIG_SYSCTL_KUNIT_TEST) += sysctl-test.o
-
 obj-$(CONFIG_GCC_PLUGIN_STACKLEAK) += stackleak.o
 KASAN_SANITIZE_stackleak.o := n
 KCOV_INSTRUMENT_stackleak.o := n
@@ -132,25 +131,15 @@ ifeq ($(BUILD_HMD_MP_VERSION),true)
 subdir-ccflags-y += -DHMD_MP_VERSION
 endif
 # req SCW-737,luohao,20210111,add,end
-# req QKS-5107,changmei.chen,20210819,add,begin
-ifeq ($(BUILD_USER_TYPE_VERSION),true)
-subdir-ccflags-y += -DBUILD_USER_TYPE_VERSION
-endif
-# req QKS-5107,changmei.chen,20210819,add,end
 
-targets += config_data config_data.gz
-$(obj)/config_data.gz: $(obj)/config_data FORCE
+targets += config_data.gz
+$(obj)/config_data.gz: $(KCONFIG_CONFIG) FORCE
 	$(call if_changed,gzip)
-
-filechk_cat = cat $<
-
-$(obj)/config_data: $(KCONFIG_CONFIG) FORCE
-	$(call filechk,cat)
 
 $(obj)/kheaders.o: $(obj)/kheaders_data.tar.xz
 
 quiet_cmd_genikh = CHK     $(obj)/kheaders_data.tar.xz
-      cmd_genikh = $(CONFIG_SHELL) $(srctree)/kernel/gen_kheaders.sh $@
+      cmd_genikh = $(BASH) $(srctree)/kernel/gen_kheaders.sh $@
 $(obj)/kheaders_data.tar.xz: FORCE
 	$(call cmd,genikh)
 

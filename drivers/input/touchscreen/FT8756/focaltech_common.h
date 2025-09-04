@@ -144,10 +144,6 @@ struct ts_ic_info {
     printk("[FTS_TS]%s:"fmt"\n", __func__, ##args); \
 } while (0)
 
-#define FTS_INFO(fmt, args...) do { \
-    printk(KERN_INFO "[FTS_TS/I]%s:"fmt"\n", __func__, ##args); \
-} while (0)
-
 #define FTS_FUNC_ENTER() do { \
     printk("[FTS_TS]%s: Enter\n", __func__); \
 } while (0)
@@ -157,10 +153,13 @@ struct ts_ic_info {
 } while (0)
 #else /* #if FTS_DEBUG_EN*/
 #define FTS_DEBUG(fmt, args...)
-#define FTS_INFO(fmt, args...)
 #define FTS_FUNC_ENTER()
 #define FTS_FUNC_EXIT()
 #endif
+
+#define FTS_INFO(fmt, args...) do { \
+    printk(KERN_INFO "[FTS_TS/I]%s:"fmt"\n", __func__, ##args); \
+} while (0)
 
 #define FTS_ERROR(fmt, args...) do { \
     printk(KERN_ERR "[FTS_TS/E]%s:"fmt"\n", __func__, ##args); \

@@ -167,7 +167,6 @@ struct acpi_ec_query {
 	struct transaction transaction;
 	struct work_struct work;
 	struct acpi_ec_query_handler *handler;
-	struct acpi_ec *ec;
 };
 
 static int acpi_ec_query(struct acpi_ec *ec, u8 *data);
@@ -463,7 +462,6 @@ static void acpi_ec_submit_query(struct acpi_ec *ec)
 		ec_dbg_evt("Command(%s) submitted/blocked",
 			   acpi_ec_cmd_string(ACPI_EC_COMMAND_QUERY));
 		ec->nr_pending_queries++;
-		ec->events_in_progress++;
 		queue_work(ec_wq, &ec->work);
 	}
 }
@@ -530,7 +528,7 @@ static void acpi_ec_enable_event(struct acpi_ec *ec)
 #ifdef CONFIG_PM_SLEEP
 static void __acpi_ec_flush_work(void)
 {
-	flush_workqueue(ec_wq); /* flush ec->work */
+	drain_workqueue(ec_wq); /* flush ec->work */
 	flush_workqueue(ec_query_wq); /* flush queries */
 }
 
@@ -1046,20 +1044,28 @@ void acpi_ec_unblock_transactions(void)
                                 Event Management
    -------------------------------------------------------------------------- */
 static struct acpi_ec_query_handler *
+acpi_ec_get_query_handler(struct acpi_ec_query_handler *handler)
+{
+	if (handler)
+		kref_get(&handler->kref);
+	return handler;
+}
+
+static struct acpi_ec_query_handler *
 acpi_ec_get_query_handler_by_value(struct acpi_ec *ec, u8 value)
 {
 	struct acpi_ec_query_handler *handler;
+	bool found = false;
 
 	mutex_lock(&ec->mutex);
 	list_for_each_entry(handler, &ec->list, node) {
 		if (value == handler->query_bit) {
-			kref_get(&handler->kref);
-			mutex_unlock(&ec->mutex);
-			return handler;
+			found = true;
+			break;
 		}
 	}
 	mutex_unlock(&ec->mutex);
-	return NULL;
+	return found ? acpi_ec_get_query_handler(handler) : NULL;
 }
 
 static void acpi_ec_query_handler_release(struct kref *kref)
@@ -1118,11 +1124,10 @@ static void acpi_ec_remove_query_handlers(struct acpi_ec *ec,
 void acpi_ec_remove_query_handler(struct acpi_ec *ec, u8 query_bit)
 {
 	acpi_ec_remove_query_handlers(ec, false, query_bit);
-	flush_workqueue(ec_query_wq);
 }
 EXPORT_SYMBOL_GPL(acpi_ec_remove_query_handler);
 
-static struct acpi_ec_query *acpi_ec_create_query(struct acpi_ec *ec, u8 *pval)
+static struct acpi_ec_query *acpi_ec_create_query(u8 *pval)
 {
 	struct acpi_ec_query *q;
 	struct transaction *t;
@@ -1130,13 +1135,11 @@ static struct acpi_ec_query *acpi_ec_create_query(struct acpi_ec *ec, u8 *pval)
 	q = kzalloc(sizeof (struct acpi_ec_query), GFP_KERNEL);
 	if (!q)
 		return NULL;
-
 	INIT_WORK(&q->work, acpi_ec_event_processor);
 	t = &q->transaction;
 	t->command = ACPI_EC_COMMAND_QUERY;
 	t->rdata = pval;
 	t->rlen = 1;
-	q->ec = ec;
 	return q;
 }
 
@@ -1153,21 +1156,13 @@ static void acpi_ec_event_processor(struct work_struct *work)
 {
 	struct acpi_ec_query *q = container_of(work, struct acpi_ec_query, work);
 	struct acpi_ec_query_handler *handler = q->handler;
-	struct acpi_ec *ec = q->ec;
 
 	ec_dbg_evt("Query(0x%02x) started", handler->query_bit);
-
 	if (handler->func)
 		handler->func(handler->data);
 	else if (handler->handle)
 		acpi_evaluate_object(handler->handle, NULL, NULL, NULL);
-
 	ec_dbg_evt("Query(0x%02x) stopped", handler->query_bit);
-
-	spin_lock_irq(&ec->lock);
-	ec->queries_in_progress--;
-	spin_unlock_irq(&ec->lock);
-
 	acpi_ec_delete_query(q);
 }
 
@@ -1177,7 +1172,7 @@ static int acpi_ec_query(struct acpi_ec *ec, u8 *data)
 	int result;
 	struct acpi_ec_query *q;
 
-	q = acpi_ec_create_query(ec, &value);
+	q = acpi_ec_create_query(&value);
 	if (!q)
 		return -ENOMEM;
 
@@ -1199,20 +1194,19 @@ static int acpi_ec_query(struct acpi_ec *ec, u8 *data)
 	}
 
 	/*
-	 * It is reported that _Qxx are evaluated in a parallel way on Windows:
+	 * It is reported that _Qxx are evaluated in a parallel way on
+	 * Windows:
 	 * https://bugzilla.kernel.org/show_bug.cgi?id=94411
 	 *
-	 * Put this log entry before queue_work() to make it appear in the log
-	 * before any other messages emitted during workqueue handling.
+	 * Put this log entry before schedule_work() in order to make
+	 * it appearing before any other log entries occurred during the
+	 * work queue execution.
 	 */
 	ec_dbg_evt("Query(0x%02x) scheduled", value);
-
-	spin_lock_irq(&ec->lock);
-
-	ec->queries_in_progress++;
-	queue_work(ec_query_wq, &q->work);
-
-	spin_unlock_irq(&ec->lock);
+	if (!queue_work(ec_query_wq, &q->work)) {
+		ec_dbg_evt("Query(0x%02x) overlapped", value);
+		result = -EBUSY;
+	}
 
 err_exit:
 	if (result)
@@ -1270,10 +1264,6 @@ static void acpi_ec_event_handler(struct work_struct *work)
 	ec_dbg_evt("Event stopped");
 
 	acpi_ec_check_event(ec);
-
-	spin_lock_irqsave(&ec->lock, flags);
-	ec->events_in_progress--;
-	spin_unlock_irqrestore(&ec->lock, flags);
 }
 
 static u32 acpi_ec_gpe_handler(acpi_handle gpe_device,
@@ -1844,22 +1834,6 @@ static const struct dmi_system_id ec_dmi_table[] __initconst = {
 	DMI_MATCH(DMI_SYS_VENDOR, "ASUSTeK COMPUTER INC."),
 	DMI_MATCH(DMI_PRODUCT_NAME, "GL702VMK"),}, NULL},
 	{
-	ec_honor_ecdt_gpe, "ASUSTeK COMPUTER INC. X505BA", {
-	DMI_MATCH(DMI_SYS_VENDOR, "ASUSTeK COMPUTER INC."),
-	DMI_MATCH(DMI_PRODUCT_NAME, "X505BA"),}, NULL},
-	{
-	ec_honor_ecdt_gpe, "ASUSTeK COMPUTER INC. X505BP", {
-	DMI_MATCH(DMI_SYS_VENDOR, "ASUSTeK COMPUTER INC."),
-	DMI_MATCH(DMI_PRODUCT_NAME, "X505BP"),}, NULL},
-	{
-	ec_honor_ecdt_gpe, "ASUSTeK COMPUTER INC. X542BA", {
-	DMI_MATCH(DMI_SYS_VENDOR, "ASUSTeK COMPUTER INC."),
-	DMI_MATCH(DMI_PRODUCT_NAME, "X542BA"),}, NULL},
-	{
-	ec_honor_ecdt_gpe, "ASUSTeK COMPUTER INC. X542BP", {
-	DMI_MATCH(DMI_SYS_VENDOR, "ASUSTeK COMPUTER INC."),
-	DMI_MATCH(DMI_PRODUCT_NAME, "X542BP"),}, NULL},
-	{
 	ec_honor_ecdt_gpe, "ASUS X550VXK", {
 	DMI_MATCH(DMI_SYS_VENDOR, "ASUSTeK COMPUTER INC."),
 	DMI_MATCH(DMI_PRODUCT_NAME, "X550VXK"),}, NULL},
@@ -1990,7 +1964,6 @@ void acpi_ec_set_gpe_wake_mask(u8 action)
 
 bool acpi_ec_dispatch_gpe(void)
 {
-	bool work_in_progress;
 	u32 ret;
 
 	if (!first_ec)
@@ -2003,27 +1976,20 @@ bool acpi_ec_dispatch_gpe(void)
 	if (acpi_any_gpe_status_set(first_ec->gpe))
 		return true;
 
+	if (ec_no_wakeup)
+		return false;
+
 	/*
 	 * Dispatch the EC GPE in-band, but do not report wakeup in any case
 	 * to allow the caller to process events properly after that.
 	 */
 	ret = acpi_dispatch_gpe(NULL, first_ec->gpe);
-	if (ret == ACPI_INTERRUPT_HANDLED)
+	if (ret == ACPI_INTERRUPT_HANDLED) {
 		pm_pr_dbg("EC GPE dispatched\n");
 
-	/* Drain EC work. */
-	do {
+		/* Flush the event and query workqueues. */
 		acpi_ec_flush_work();
-
-		pm_pr_dbg("ACPI EC work flushed\n");
-
-		spin_lock_irq(&first_ec->lock);
-
-		work_in_progress = first_ec->events_in_progress +
-			first_ec->queries_in_progress > 0;
-
-		spin_unlock_irq(&first_ec->lock);
-	} while (work_in_progress && !pm_wakeup_pending());
+	}
 
 	return false;
 }
@@ -2117,6 +2083,13 @@ static const struct dmi_system_id acpi_ec_no_wakeup[] = {
 		.matches = {
 			DMI_MATCH(DMI_SYS_VENDOR, "LENOVO"),
 			DMI_MATCH(DMI_PRODUCT_FAMILY, "Thinkpad X1 Carbon 6th"),
+		},
+	},
+	{
+		.ident = "ThinkPad X1 Carbon 6th",
+		.matches = {
+			DMI_MATCH(DMI_SYS_VENDOR, "LENOVO"),
+			DMI_MATCH(DMI_PRODUCT_FAMILY, "ThinkPad X1 Carbon 6th"),
 		},
 	},
 	{

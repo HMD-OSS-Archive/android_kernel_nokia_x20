@@ -585,11 +585,6 @@ enum {
 #endif
 
 struct ufs_dev_info {
-//merged by changxue.fang for thething meminfo,20210408,start
-#ifdef CONFIG_TTG_BOOT_INFO
-	u16 manufacture_date;
-#endif /*CONFIG_TTG_BOOT_INFO*/
-//merged by changxue.fang for thething meminfo,20210408,end
 	bool f_power_on_wp_en;
 	/* Keeps information if any of the LU is power on write protected */
 	bool is_lu_power_on_wp;
@@ -613,22 +608,6 @@ struct ufs_dev_info {
 	bool b_rpm_dev_flush_capable;
 	u8 b_presrv_uspc_en;
 };
-
-//merged by changxue.fang for thething meminfo,20210408,start
-#ifdef CONFIG_TTG_BOOT_INFO
-//now we only use total raw device capacity
-struct ufs_geometry_info{
-	uint64_t total_raw_device_capacity;
-};
-
-struct ufs_health_info {
-	/*device health descriptor info */
-	u8 pre_elo_info;
-	u8 dev_life_time_A;
-	u8 dev_life_time_B;
-};
-#endif /*CONFIG_TTG_BOOT_INFO*/
-//merged by changxue.fang for thething meminfo,20210408,end
 
 /**
  * ufs_is_valid_unit_desc_lun - checks if the given LUN has a unit descriptor

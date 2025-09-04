@@ -1,5 +1,0 @@
-config SDCARD_REPORT 
-	bool "sdcard status report virtual pin"
-	default n
-	help
-		this feature is for reporting sdcars status

@@ -14,7 +14,6 @@
 #include <linux/version.h>
 #include <linux/regulator/consumer.h>
 
-#include <linux/pm_wakeup.h>
 #ifdef CONFIG_COMPAT
 #include <linux/compat.h>
 #endif
@@ -619,7 +618,7 @@ static int fpsensor_probe(struct platform_device *pdev)
 {
     int status = 0;
     fpsensor_data_t *fpsensor_dev = NULL;
-    struct device *dev = &pdev->dev;
+
     FUNC_ENTRY();
     fpsensor_debug(INFO_LOG, "fp_sensor_probe");
     /* Allocate driver data */
@@ -650,13 +649,7 @@ static int fpsensor_probe(struct platform_device *pdev)
     }
     init_waitqueue_head(&fpsensor_dev->wq_irq_return);
 #if FPSENSOR_WAKEUP_TYPE == FPSENSOR_WAKEUP_SOURCE
-   #if LINUX_VERSION_CODE > KERNEL_VERSION(5,4,0)
-    g_ttw_wl = wakeup_source_register(dev, "fpsensor");
-    fpsensor_debug(ERR_LOG, "fpsensor wakeup_source_register");
-   #else
-    wakeup_source_init(&g_ttw_wl, "fpsensor_ttw_wl");
-    fpsensor_debug(ERR_LOG, "fpsensor wakeup_source_init");
-   #endif
+    //wakeup_source_init(&g_ttw_wl, "fpsensor_ttw_wl");
 #else
     wake_lock_init(&g_ttw_wl, WAKE_LOCK_SUSPEND, "fpsensor_ttw_wl");
 #endif

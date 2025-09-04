@@ -26,7 +26,6 @@
 #include <linux/syscalls.h>
 #include <linux/compat.h>
 #include <linux/rcupdate.h>
-#include <linux/wakeup_reason.h> // ning.wei++ for add more detail for wakeup reason
 
 struct timerfd_ctx {
 	union {
@@ -50,7 +49,7 @@ static LIST_HEAD(cancel_list);
 static DEFINE_SPINLOCK(cancel_lock);
 
 // ning.wei++ for alarm_debug
-static int alarm_debug = 1;
+static int alarm_debug = 0;
 
 module_param_named(alarm_debug, alarm_debug, int, 0644);
 // ning.wei++ for alarm_debug
@@ -247,12 +246,10 @@ static __poll_t timerfd_poll(struct file *file, poll_table *wait)
 		events |= EPOLLIN;
 
 	// ning.wei++
-	if (alarm_debug && ctx->expired && isalarm(ctx)) {
-		log_rtc_addition_info("%s %d", current->comm, current->pid); // add more detail for wakeup reason
+	if (alarm_debug && ctx->expired && isalarm(ctx))
 		pr_info("[oem]%s: comm:%s pid:%d exp:%llu\n", __func__,
 									current->comm, current->pid,
 									ktime_to_ms(ctx->t.alarm.node.expires));
-	}
 
 	spin_unlock_irqrestore(&ctx->wqh.lock, flags);
 

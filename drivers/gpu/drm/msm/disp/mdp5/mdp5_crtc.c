@@ -534,15 +534,9 @@ int mdp5_crtc_setup_pipeline(struct drm_crtc *crtc,
 		if (ret)
 			return ret;
 
-		ret = mdp5_mixer_release(new_crtc_state->state, old_mixer);
-		if (ret)
-			return ret;
-
+		mdp5_mixer_release(new_crtc_state->state, old_mixer);
 		if (old_r_mixer) {
-			ret = mdp5_mixer_release(new_crtc_state->state, old_r_mixer);
-			if (ret)
-				return ret;
-
+			mdp5_mixer_release(new_crtc_state->state, old_r_mixer);
 			if (!need_right_mixer)
 				pipeline->r_mixer = NULL;
 		}
@@ -909,10 +903,8 @@ static int mdp5_crtc_cursor_set(struct drm_crtc *crtc,
 
 	ret = msm_gem_get_and_pin_iova(cursor_bo, kms->aspace,
 			&mdp5_crtc->cursor.iova);
-	if (ret) {
-		drm_gem_object_put(cursor_bo);
+	if (ret)
 		return -EINVAL;
-	}
 
 	pm_runtime_get_sync(&pdev->dev);
 
@@ -1107,7 +1099,7 @@ static void mdp5_crtc_pp_done_irq(struct mdp_irq *irq, uint32_t irqstatus)
 	struct mdp5_crtc *mdp5_crtc = container_of(irq, struct mdp5_crtc,
 								pp_done);
 
-	complete_all(&mdp5_crtc->pp_completion);
+	complete(&mdp5_crtc->pp_completion);
 }
 
 static void mdp5_crtc_wait_for_pp_done(struct drm_crtc *crtc)

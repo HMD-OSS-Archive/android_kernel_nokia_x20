@@ -35,22 +35,12 @@
  * SOFTWARE.
  */
 
-#include <linux/bug.h>
 #include <linux/sched/signal.h>
 #include <linux/module.h>
-#include <linux/splice.h>
 #include <crypto/aead.h>
 
 #include <net/strparser.h>
 #include <net/tls.h>
-
-noinline void tls_err_abort(struct sock *sk, int err)
-{
-	WARN_ON_ONCE(err >= 0);
-	/* sk->sk_err should contain a positive error code. */
-	sk->sk_err = -err;
-	sk->sk_error_report(sk);
-}
 
 static int __skb_nsg(struct sk_buff *skb, int offset, int len,
                      unsigned int recursion_level)
@@ -425,7 +415,7 @@ int tls_tx_records(struct sock *sk, int flags)
 
 tx_err:
 	if (rc < 0 && rc != -EAGAIN)
-		tls_err_abort(sk, -EBADMSG);
+		tls_err_abort(sk, EBADMSG);
 
 	return rc;
 }
@@ -456,7 +446,7 @@ static void tls_encrypt_done(struct crypto_async_request *req, int err)
 
 		/* If err is already set on socket, return the same code */
 		if (sk->sk_err) {
-			ctx->async_wait.err = -sk->sk_err;
+			ctx->async_wait.err = sk->sk_err;
 		} else {
 			ctx->async_wait.err = err;
 			tls_err_abort(sk, err);
@@ -512,7 +502,7 @@ static int tls_do_encryption(struct sock *sk,
 	memcpy(&rec->iv_data[iv_offset], tls_ctx->tx.iv,
 	       prot->iv_size + prot->salt_size);
 
-	xor_iv_with_seq(prot->version, rec->iv_data + iv_offset, tls_ctx->tx.rec_seq);
+	xor_iv_with_seq(prot->version, rec->iv_data, tls_ctx->tx.rec_seq);
 
 	sge->offset += prot->prepend_size;
 	sge->length -= prot->prepend_size;
@@ -677,7 +667,7 @@ static int tls_push_record(struct sock *sk, int flags,
 	struct tls_prot_info *prot = &tls_ctx->prot_info;
 	struct tls_sw_context_tx *ctx = tls_sw_ctx_tx(tls_ctx);
 	struct tls_rec *rec = ctx->open_rec, *tmp = NULL;
-	u32 i, split_point, orig_end;
+	u32 i, split_point, uninitialized_var(orig_end);
 	struct sk_msg *msg_pl, *msg_en;
 	struct aead_request *req;
 	bool split;
@@ -770,7 +760,7 @@ static int tls_push_record(struct sock *sk, int flags,
 			       msg_pl->sg.size + prot->tail_size, i);
 	if (rc < 0) {
 		if (rc != -EINPROGRESS) {
-			tls_err_abort(sk, -EBADMSG);
+			tls_err_abort(sk, EBADMSG);
 			if (split) {
 				tls_ctx->pending_open_record_frags = true;
 				tls_merge_open_record(sk, rec, tmp, orig_end);
@@ -807,7 +797,7 @@ static int bpf_exec_tx_verdict(struct sk_msg *msg, struct sock *sk,
 	psock = sk_psock_get(sk);
 	if (!psock || !policy) {
 		err = tls_push_record(sk, flags, record_type);
-		if (err && err != -EINPROGRESS && sk->sk_err == EBADMSG) {
+		if (err && sk->sk_err == EBADMSG) {
 			*copied -= sk_msg_free(sk, msg);
 			tls_free_open_rec(sk);
 			err = -sk->sk_err;
@@ -836,7 +826,7 @@ more_data:
 	switch (psock->eval) {
 	case __SK_PASS:
 		err = tls_push_record(sk, flags, record_type);
-		if (err && err != -EINPROGRESS && sk->sk_err == EBADMSG) {
+		if (err && sk->sk_err == EBADMSG) {
 			*copied -= sk_msg_free(sk, msg);
 			tls_free_open_rec(sk);
 			err = -sk->sk_err;
@@ -945,9 +935,7 @@ int tls_sw_sendmsg(struct sock *sk, struct msghdr *msg, size_t size)
 	if (msg->msg_flags & ~(MSG_MORE | MSG_DONTWAIT | MSG_NOSIGNAL))
 		return -EOPNOTSUPP;
 
-	ret = mutex_lock_interruptible(&tls_ctx->tx_lock);
-	if (ret)
-		return ret;
+	mutex_lock(&tls_ctx->tx_lock);
 	lock_sock(sk);
 
 	if (unlikely(msg->msg_controllen)) {
@@ -1161,7 +1149,7 @@ static int tls_sw_do_sendpage(struct sock *sk, struct page *page,
 	int ret = 0;
 	bool eor;
 
-	eor = !(flags & MSG_SENDPAGE_NOTLAST);
+	eor = !(flags & (MSG_MORE | MSG_SENDPAGE_NOTLAST));
 	sk_clear_bit(SOCKWQ_ASYNC_NOSPACE, sk);
 
 	/* Call the sk_stream functions to manage the sndbuf mem. */
@@ -1281,9 +1269,7 @@ int tls_sw_sendpage(struct sock *sk, struct page *page,
 		      MSG_SENDPAGE_NOTLAST | MSG_SENDPAGE_NOPOLICY))
 		return -EOPNOTSUPP;
 
-	ret = mutex_lock_interruptible(&tls_ctx->tx_lock);
-	if (ret)
-		return ret;
+	mutex_lock(&tls_ctx->tx_lock);
 	lock_sock(sk);
 	ret = tls_sw_do_sendpage(sk, page, offset, size, flags);
 	release_sock(sk);
@@ -1292,7 +1278,7 @@ int tls_sw_sendpage(struct sock *sk, struct page *page,
 }
 
 static struct sk_buff *tls_wait_data(struct sock *sk, struct sk_psock *psock,
-				     bool nonblock, long timeo, int *err)
+				     int flags, long timeo, int *err)
 {
 	struct tls_context *tls_ctx = tls_get_ctx(sk);
 	struct tls_sw_context_rx *ctx = tls_sw_ctx_rx(tls_ctx);
@@ -1305,19 +1291,13 @@ static struct sk_buff *tls_wait_data(struct sock *sk, struct sk_psock *psock,
 			return NULL;
 		}
 
-		if (!skb_queue_empty(&sk->sk_receive_queue)) {
-			__strp_unpause(&ctx->strp);
-			if (ctx->recv_pkt)
-				return ctx->recv_pkt;
-		}
-
 		if (sk->sk_shutdown & RCV_SHUTDOWN)
 			return NULL;
 
 		if (sock_flag(sk, SOCK_DONE))
 			return NULL;
 
-		if (nonblock || !timeo) {
+		if ((flags & MSG_DONTWAIT) || !timeo) {
 			*err = -EAGAIN;
 			return NULL;
 		}
@@ -1483,11 +1463,11 @@ static int decrypt_internal(struct sock *sk, struct sk_buff *skb,
 	}
 	if (prot->version == TLS_1_3_VERSION)
 		memcpy(iv + iv_offset, tls_ctx->rx.iv,
-		       prot->iv_size + prot->salt_size);
+		       crypto_aead_ivsize(ctx->aead_recv));
 	else
 		memcpy(iv + iv_offset, tls_ctx->rx.iv, prot->salt_size);
 
-	xor_iv_with_seq(prot->version, iv + iv_offset, tls_ctx->rx.rec_seq);
+	xor_iv_with_seq(prot->version, iv, tls_ctx->rx.rec_seq);
 
 	/* Prepare AAD */
 	tls_make_aad(aad, rxm->full_len - prot->overhead_size +
@@ -1795,7 +1775,7 @@ int tls_sw_recvmsg(struct sock *sk,
 		bool async_capable;
 		bool async = false;
 
-		skb = tls_wait_data(sk, psock, flags & MSG_DONTWAIT, timeo, &err);
+		skb = tls_wait_data(sk, psock, flags, timeo, &err);
 		if (!skb) {
 			if (psock) {
 				int ret = __tcp_bpf_recvmsg(sk, psock,
@@ -1835,7 +1815,7 @@ int tls_sw_recvmsg(struct sock *sk,
 		err = decrypt_skb_update(sk, skb, &msg->msg_iter,
 					 &chunk, &zc, async_capable);
 		if (err < 0 && err != -EINPROGRESS) {
-			tls_err_abort(sk, -EBADMSG);
+			tls_err_abort(sk, EBADMSG);
 			goto recv_end;
 		}
 
@@ -1927,7 +1907,7 @@ pick_next_record:
 			 * another message type
 			 */
 			msg->msg_flags |= MSG_EOR;
-			if (control != TLS_RECORD_TYPE_DATA)
+			if (ctx->control != TLS_RECORD_TYPE_DATA)
 				goto recv_end;
 		} else {
 			break;
@@ -1999,9 +1979,9 @@ ssize_t tls_sw_splice_read(struct socket *sock,  loff_t *ppos,
 
 	lock_sock(sk);
 
-	timeo = sock_rcvtimeo(sk, flags & SPLICE_F_NONBLOCK);
+	timeo = sock_rcvtimeo(sk, flags & MSG_DONTWAIT);
 
-	skb = tls_wait_data(sk, NULL, flags & SPLICE_F_NONBLOCK, timeo, &err);
+	skb = tls_wait_data(sk, NULL, flags, timeo, &err);
 	if (!skb)
 		goto splice_read_end;
 
@@ -2015,7 +1995,7 @@ ssize_t tls_sw_splice_read(struct socket *sock,  loff_t *ppos,
 		}
 
 		if (err < 0) {
-			tls_err_abort(sk, -EBADMSG);
+			tls_err_abort(sk, EBADMSG);
 			goto splice_read_end;
 		}
 		ctx->decrypted = true;
@@ -2157,15 +2137,10 @@ void tls_sw_release_resources_tx(struct sock *sk)
 	struct tls_context *tls_ctx = tls_get_ctx(sk);
 	struct tls_sw_context_tx *ctx = tls_sw_ctx_tx(tls_ctx);
 	struct tls_rec *rec, *tmp;
-	int pending;
 
 	/* Wait for any pending async encryptions to complete */
-	spin_lock_bh(&ctx->encrypt_compl_lock);
-	ctx->async_notify = true;
-	pending = atomic_read(&ctx->encrypt_pending);
-	spin_unlock_bh(&ctx->encrypt_compl_lock);
-
-	if (pending)
+	smp_store_mb(ctx->async_notify, true);
+	if (atomic_read(&ctx->encrypt_pending))
 		crypto_wait_req(-EINPROGRESS, &ctx->async_wait);
 
 	tls_tx_records(sk, -1);
@@ -2267,19 +2242,11 @@ static void tx_work_handler(struct work_struct *work)
 
 	if (!test_and_clear_bit(BIT_TX_SCHEDULED, &ctx->tx_bitmask))
 		return;
-
-	if (mutex_trylock(&tls_ctx->tx_lock)) {
-		lock_sock(sk);
-		tls_tx_records(sk, -1);
-		release_sock(sk);
-		mutex_unlock(&tls_ctx->tx_lock);
-	} else if (!test_and_set_bit(BIT_TX_SCHEDULED, &ctx->tx_bitmask)) {
-		/* Someone is holding the tx_lock, they will likely run Tx
-		 * and cancel the work on their way out of the lock section.
-		 * Schedule a long delay just in case.
-		 */
-		schedule_delayed_work(&ctx->tx_work.work, msecs_to_jiffies(10));
-	}
+	mutex_lock(&tls_ctx->tx_lock);
+	lock_sock(sk);
+	tls_tx_records(sk, -1);
+	release_sock(sk);
+	mutex_unlock(&tls_ctx->tx_lock);
 }
 
 void tls_sw_write_space(struct sock *sk, struct tls_context *ctx)

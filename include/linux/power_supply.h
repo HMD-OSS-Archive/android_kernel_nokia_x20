@@ -132,11 +132,9 @@ enum power_supply_property {
 	POWER_SUPPLY_PROP_CHARGE_CONTROL_START_THRESHOLD, /* in percents! */
 	POWER_SUPPLY_PROP_CHARGE_CONTROL_END_THRESHOLD, /* in percents! */
 	POWER_SUPPLY_PROP_INPUT_CURRENT_LIMIT,
-//merged by changxue.fang for thething,20210414,start
 #ifdef CONFIG_HS_CHARGE_FG_FUNCTION
 	POWER_SUPPLY_PROP_CHARGER_TYPE,
 #endif /*CONFIG_HS_CHARGE_FG_FUNCTION*/
-//merged by changxue.fang for thething,20210414,end
 	POWER_SUPPLY_PROP_INPUT_VOLTAGE_LIMIT,
 	POWER_SUPPLY_PROP_INPUT_POWER_LIMIT,
 	POWER_SUPPLY_PROP_ENERGY_FULL_DESIGN,
@@ -442,9 +440,8 @@ power_supply_temp2resist_simple(struct power_supply_resistance_temp_table *table
 				int table_len, int temp);
 extern void power_supply_changed(struct power_supply *psy);
 extern int power_supply_am_i_supplied(struct power_supply *psy);
-int power_supply_get_property_from_supplier(struct power_supply *psy,
-					    enum power_supply_property psp,
-					    union power_supply_propval *val);
+extern int power_supply_set_input_current_limit_from_supplier(
+					 struct power_supply *psy);
 extern int power_supply_set_battery_charged(struct power_supply *psy);
 
 #ifdef CONFIG_POWER_SUPPLY

@@ -30,16 +30,6 @@ config LEDS_CLASS_FLASH
 	  for the flash related features of a LED device. It can be built
 	  as a module.
 
-config LEDS_CLASS_MULTICOLOR
-	tristate "LED Multicolor Class Support"
-	depends on LEDS_CLASS
-	help
-	  This option enables the multicolor LED sysfs class in /sys/class/leds.
-	  It wraps LED class and adds multicolor LED specific sysfs attributes
-	  and kernel internal API to it. You'll need this to provide support
-	  for multicolor LEDs that are grouped together. This class is not
-	  intended for single color LEDs. It can be built as a module.
-
 config LEDS_BRIGHTNESS_HW_CHANGED
 	bool "LED Class brightness_hw_changed attribute support"
 	depends on LEDS_CLASS
@@ -102,13 +92,6 @@ config LEDS_AS3645A
 	  controller. V4L2 flash API is provided as well if
 	  CONFIG_V4L2_FLASH_API is enabled.
 
-config LEDS_AW2016
-	tristate "LED Support for AW2016"
-	depends on LEDS_CLASS && I2C
-	help
-		this option enables support for the AW2016 RGB LED connected
-		through I2C. Say Y to enable support for the AW2016 LED
-
 config LEDS_BCM6328
 	tristate "LED Support for Broadcom BCM6328"
 	depends on LEDS_CLASS
@@ -161,7 +144,6 @@ config LEDS_LM3530
 
 config LEDS_LM3532
 	tristate "LCD Backlight driver for LM3532"
-	select REGMAP_I2C
 	depends on LEDS_CLASS
 	depends on I2C
 	help
@@ -757,15 +739,6 @@ config LEDS_SC27XX_BLTC
 	  This driver can also be built as a module. If so the module will be
 	  called leds-sc27xx-bltc.
 
-config LEDS_QCOM_CLK
-	tristate "LED Support for cock controller based PWM drvier"
-	depends on OF && PINCTRL && LEDS_CLASS
-	help
-	  This option enables the driver for clock driven LED.
-	  This driver controls the duty cycle of clocks generated
-	  by Qualcomm Technologies, Inc Chipsets.
-	  It also configures the pinctrl to output the clock.
-
 comment "LED driver for blink(1) USB RGB LED is under Special HID drivers (HID_THINGM)"
 
 config LEDS_BLINKM
@@ -854,7 +827,7 @@ config LEDS_SPI_BYTE
 config LEDS_TI_LMU_COMMON
 	tristate "LED driver for TI LMU"
 	depends on LEDS_CLASS
-	select REGMAP
+	depends on REGMAP
 	help
 	  Say Y to enable the LED driver for TI LMU devices.
 	  This supports common features between the TI LM3532, LM3631, LM3632,
@@ -891,7 +864,7 @@ config LEDS_SUNLIGHT
 	tristate "LED support for HMD GLOBAL, Inc. sunlight_led"
 	depends on LEDS_CLASS && OF
 	help
-	  This driver supports the sunlight module found in HMD.
+	  This driver supports the sunlight module found in chino-e, Inc.
 
 config LEDS_QPNP_VIBRATOR_LDO
 	tristate "Vibrator-LDO support for QPNP PMIC"

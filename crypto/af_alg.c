@@ -16,7 +16,6 @@
 #include <linux/module.h>
 #include <linux/net.h>
 #include <linux/rwsem.h>
-#include <linux/sched.h>
 #include <linux/sched/signal.h>
 #include <linux/security.h>
 
@@ -147,7 +146,7 @@ static int alg_bind(struct socket *sock, struct sockaddr *uaddr, int addr_len)
 	const u32 allowed = CRYPTO_ALG_KERN_DRIVER_ONLY;
 	struct sock *sk = sock->sk;
 	struct alg_sock *ask = alg_sk(sk);
-	struct sockaddr_alg_new *sa = (void *)uaddr;
+	struct sockaddr_alg *sa = (void *)uaddr;
 	const struct af_alg_type *type;
 	void *private;
 	int err;
@@ -155,11 +154,7 @@ static int alg_bind(struct socket *sock, struct sockaddr *uaddr, int addr_len)
 	if (sock->state == SS_CONNECTED)
 		return -EINVAL;
 
-	BUILD_BUG_ON(offsetof(struct sockaddr_alg_new, salg_name) !=
-		     offsetof(struct sockaddr_alg, salg_name));
-	BUILD_BUG_ON(offsetof(struct sockaddr_alg, salg_name) != sizeof(*sa));
-
-	if (addr_len < sizeof(*sa) + 1)
+	if (addr_len < sizeof(*sa))
 		return -EINVAL;
 
 	/* If caller uses non-allowed flag, return error. */
@@ -167,7 +162,7 @@ static int alg_bind(struct socket *sock, struct sockaddr *uaddr, int addr_len)
 		return -EINVAL;
 
 	sa->salg_type[sizeof(sa->salg_type) - 1] = 0;
-	sa->salg_name[addr_len - sizeof(*sa) - 1] = 0;
+	sa->salg_name[sizeof(sa->salg_name) + addr_len - sizeof(*sa) - 1] = 0;
 
 	type = alg_get_type(sa->salg_type);
 	if (IS_ERR(type) && PTR_ERR(type) == -ENOENT) {
@@ -852,15 +847,9 @@ int af_alg_sendmsg(struct socket *sock, struct msghdr *msg, size_t size,
 	}
 
 	lock_sock(sk);
-	if (ctx->init && !ctx->more) {
-		if (ctx->used) {
-			err = -EINVAL;
-			goto unlock;
-		}
-
-		pr_info_once(
-			"%s sent an empty control message without MSG_MORE.\n",
-			current->comm);
+	if (ctx->init && (init || !ctx->more)) {
+		err = -EINVAL;
+		goto unlock;
 	}
 	ctx->init = true;
 

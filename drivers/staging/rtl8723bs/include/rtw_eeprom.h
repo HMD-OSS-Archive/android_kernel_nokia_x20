@@ -88,9 +88,9 @@ typedef enum _RT_CUSTOMER_ID
 	RT_CID_INTEL_CHINA = 41,
 	RT_CID_TPLINK_HPWR = 42,
 	RT_CID_819x_Sercomm_Netgear = 43,
-	RT_CID_819x_ALPHA_Dlink = 44,/* add by ylb 20121012 for customer led for alpha */
-	RT_CID_WNC_NEC = 45,/* add by page for NEC */
-	RT_CID_DNI_BUFFALO = 46,/* add by page for NEC */
+	RT_CID_819x_ALPHA_Dlink = 44,
+	RT_CID_WNC_NEC = 45,
+	RT_CID_DNI_BUFFALO = 46,
 }RT_CUSTOMER_ID, *PRT_CUSTOMER_ID;
 
 struct eeprom_priv

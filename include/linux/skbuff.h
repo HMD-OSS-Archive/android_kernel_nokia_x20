@@ -259,7 +259,6 @@ struct nf_bridge_info {
 	u8			pkt_otherhost:1;
 	u8			in_prerouting:1;
 	u8			bridged_dnat:1;
-	u8			sabotage_in_done:1;
 	__u16			frag_max_size;
 	struct net_device	*physindev;
 
@@ -666,7 +665,6 @@ typedef unsigned char *sk_buff_data_t;
  *	@wifi_acked: whether frame was acked on wifi or not
  *	@no_fcs:  Request NIC to treat last 4 bytes as Ethernet FCS
  *	@csum_not_inet: use CRC32c to resolve CHECKSUM_PARTIAL
- *	@scm_io_uring: SKB holds io_uring registered files
  *	@dst_pending_confirm: need to confirm neighbour
  *	@decrypted: Decrypted SKB
  *	@napi_id: id of the NAPI struct this skb came from
@@ -886,25 +884,7 @@ struct sk_buff {
 	__u32			headers_end[0];
 	/* public: */
 
-	/* Android KABI preservation.
-	 *
-	 * "open coded" version of ANDROID_KABI_USE() to pack more
-	 * fields/variables into the space that we have.
-	 *
-	 * scm_io_uring is from 04df9719df18 ("io_uring/af_unix: defer
-	 * registered files gc to io_uring release")
-	 */
-	/* NOTE: due to these fields ending up after headers_end, we have to
-	 * manually copy them in the __copy_skb_header() call in skbuf.c.  Be
-	 * very aware of that if you change these fields.
-	 */
-	_ANDROID_KABI_REPLACE(_ANDROID_KABI_RESERVE(1),
-			 struct {
-				__u8 scm_io_uring:1;
-				__u8 android_kabi_reserved1_padding1;
-				__u16 android_kabi_reserved1_padding2;
-				__u32 android_kabi_reserved1_padding3;
-				});
+	ANDROID_KABI_RESERVE(1);
 	ANDROID_KABI_RESERVE(2);
 
 	/* These elements must be at the end, see alloc_skb() for details.  */
@@ -1513,11 +1493,6 @@ static inline void skb_mark_not_on_list(struct sk_buff *skb)
 	skb->next = NULL;
 }
 
-/* Iterate through singly-linked GSO fragments of an skb. */
-#define skb_list_walk_safe(first, skb, next_skb)                               \
-	for ((skb) = (first), (next_skb) = (skb) ? (skb)->next : NULL; (skb);  \
-	     (skb) = (next_skb), (next_skb) = (skb) ? (skb)->next : NULL)
-
 static inline void skb_list_del_init(struct sk_buff *skb)
 {
 	__list_del_entry(&skb->list);
@@ -1855,18 +1830,6 @@ static inline __u32 skb_queue_len(const struct sk_buff_head *list_)
 }
 
 /**
- *	skb_queue_len_lockless	- get queue length
- *	@list_: list to measure
- *
- *	Return the length of an &sk_buff queue.
- *	This variant can be used in lockless contexts.
- */
-static inline __u32 skb_queue_len_lockless(const struct sk_buff_head *list_)
-{
-	return READ_ONCE(list_->qlen);
-}
-
-/**
  *	__skb_queue_head_init - initialize non-spinlock portions of sk_buff_head
  *	@list: queue to initialize
  *
@@ -1920,7 +1883,7 @@ static inline void __skb_insert(struct sk_buff *newsk,
 	WRITE_ONCE(newsk->prev, prev);
 	WRITE_ONCE(next->prev, newsk);
 	WRITE_ONCE(prev->next, newsk);
-	WRITE_ONCE(list->qlen, list->qlen + 1);
+	list->qlen++;
 }
 
 static inline void __skb_queue_splice(const struct sk_buff_head *list,
@@ -2071,7 +2034,7 @@ static inline void __skb_unlink(struct sk_buff *skb, struct sk_buff_head *list)
 {
 	struct sk_buff *next, *prev;
 
-	WRITE_ONCE(list->qlen, list->qlen - 1);
+	list->qlen--;
 	next	   = skb->next;
 	prev	   = skb->prev;
 	skb->next  = skb->prev = NULL;
@@ -2233,14 +2196,6 @@ static inline void skb_set_tail_pointer(struct sk_buff *skb, const int offset)
 }
 
 #endif /* NET_SKBUFF_DATA_USES_OFFSET */
-
-static inline void skb_assert_len(struct sk_buff *skb)
-{
-#ifdef CONFIG_DEBUG_NET
-	if (WARN_ONCE(!skb->len, "%s\n", __func__))
-		DO_ONCE_LITE(skb_dump, KERN_ERR, skb, false);
-#endif /* CONFIG_DEBUG_NET */
-}
 
 /*
  *	Add data to an sk_buff
@@ -3243,9 +3198,8 @@ static inline int skb_padto(struct sk_buff *skb, unsigned int len)
  *	is untouched. Otherwise it is extended. Returns zero on
  *	success. The skb is freed on error if @free_on_error is true.
  */
-static inline int __must_check __skb_put_padto(struct sk_buff *skb,
-					       unsigned int len,
-					       bool free_on_error)
+static inline int __skb_put_padto(struct sk_buff *skb, unsigned int len,
+				  bool free_on_error)
 {
 	unsigned int size = skb->len;
 
@@ -3268,7 +3222,7 @@ static inline int __must_check __skb_put_padto(struct sk_buff *skb,
  *	is untouched. Otherwise it is extended. Returns zero on
  *	success. The skb is freed on error.
  */
-static inline int __must_check skb_put_padto(struct sk_buff *skb, unsigned int len)
+static inline int skb_put_padto(struct sk_buff *skb, unsigned int len)
 {
 	return __skb_put_padto(skb, len, true);
 }
@@ -3591,11 +3545,6 @@ int skb_ensure_writable(struct sk_buff *skb, int write_len);
 int __skb_vlan_pop(struct sk_buff *skb, u16 *vlan_tci);
 int skb_vlan_pop(struct sk_buff *skb);
 int skb_vlan_push(struct sk_buff *skb, __be16 vlan_proto, u16 vlan_tci);
-#ifdef CONFIG_NET_SCHED_ACT_VLAN_QGKI
-int skb_eth_pop(struct sk_buff *skb);
-int skb_eth_push(struct sk_buff *skb, const unsigned char *dst,
-		 const unsigned char *src);
-#endif
 int skb_mpls_push(struct sk_buff *skb, __be32 mpls_lse, __be16 mpls_proto,
 		  int mac_len, bool ethernet);
 int skb_mpls_pop(struct sk_buff *skb, __be16 next_proto, int mac_len,
@@ -4264,7 +4213,7 @@ static inline void nf_reset_ct(struct sk_buff *skb)
 
 static inline void nf_reset_trace(struct sk_buff *skb)
 {
-#if IS_ENABLED(CONFIG_NETFILTER_XT_TARGET_TRACE) || IS_ENABLED(CONFIG_NF_TABLES)
+#if IS_ENABLED(CONFIG_NETFILTER_XT_TARGET_TRACE) || defined(CONFIG_NF_TABLES)
 	skb->nf_trace = 0;
 #endif
 }
@@ -4284,7 +4233,7 @@ static inline void __nf_copy(struct sk_buff *dst, const struct sk_buff *src,
 	dst->_nfct = src->_nfct;
 	nf_conntrack_get(skb_nfct(src));
 #endif
-#if IS_ENABLED(CONFIG_NETFILTER_XT_TARGET_TRACE) || IS_ENABLED(CONFIG_NF_TABLES)
+#if IS_ENABLED(CONFIG_NETFILTER_XT_TARGET_TRACE) || defined(CONFIG_NF_TABLES)
 	if (copy)
 		dst->nf_trace = src->nf_trace;
 #endif

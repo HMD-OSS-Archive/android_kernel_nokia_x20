@@ -225,9 +225,7 @@ static int caam_rsa_count_leading_zeros(struct scatterlist *sgl,
 		if (len && *buff)
 			break;
 
-		if (!sg_miter_next(&miter))
-			break;
-
+		sg_miter_next(&miter);
 		buff = miter.addr;
 		len = miter.length;
 
@@ -1089,27 +1087,16 @@ static struct caam_akcipher_alg caam_rsa = {
 int caam_pkc_init(struct device *ctrldev)
 {
 	struct caam_drv_private *priv = dev_get_drvdata(ctrldev);
-	u32 pk_inst, pkha;
+	u32 pk_inst;
 	int err;
 	init_done = false;
 
 	/* Determine public key hardware accelerator presence. */
-	if (priv->era < 10) {
+	if (priv->era < 10)
 		pk_inst = (rd_reg32(&priv->ctrl->perfmon.cha_num_ls) &
 			   CHA_ID_LS_PK_MASK) >> CHA_ID_LS_PK_SHIFT;
-	} else {
-		pkha = rd_reg32(&priv->ctrl->vreg.pkha);
-		pk_inst = pkha & CHA_VER_NUM_MASK;
-
-		/*
-		 * Newer CAAMs support partially disabled functionality. If this is the
-		 * case, the number is non-zero, but this bit is set to indicate that
-		 * no encryption or decryption is supported. Only signing and verifying
-		 * is supported.
-		 */
-		if (pkha & CHA_VER_MISC_PKHA_NO_CRYPT)
-			pk_inst = 0;
-	}
+	else
+		pk_inst = rd_reg32(&priv->ctrl->vreg.pkha) & CHA_VER_NUM_MASK;
 
 	/* Do not register algorithms if PKHA is not present. */
 	if (!pk_inst)

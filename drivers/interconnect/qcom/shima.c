@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
- * Copyright (c) 2020-2021, The Linux Foundation. All rights reserved.
- * Copyright (c) 2023, Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2020, The Linux Foundation. All rights reserved.
  *
  */
 
@@ -2549,13 +2548,6 @@ static int qnoc_probe(struct platform_device *pdev)
 	if (qp->num_clks < 0)
 		return qp->num_clks;
 
-	for (i = 0; i < qp->num_bcms; i++)
-		qcom_icc_bcm_init(qp->bcms[i], &pdev->dev);
-
-	ret = qcom_icc_enable_qos_deps(qp);
-	if (ret)
-		return ret;
-
 	for (i = 0; i < num_nodes; i++) {
 		size_t j;
 
@@ -2568,11 +2560,6 @@ static int qnoc_probe(struct platform_device *pdev)
 		if (IS_ERR(node)) {
 			ret = PTR_ERR(node);
 			goto err;
-		}
-
-		if (qnodes[i]->qosbox) {
-			qnodes[i]->noc_ops->set_qos(qnodes[i]);
-			qnodes[i]->qosbox->initialized = true;
 		}
 
 		node->name = qnodes[i]->name;
@@ -2590,7 +2577,9 @@ static int qnoc_probe(struct platform_device *pdev)
 	}
 	data->num_nodes = num_nodes;
 
-	qcom_icc_disable_qos_deps(qp);
+	for (i = 0; i < qp->num_bcms; i++)
+		qcom_icc_bcm_init(qp->bcms[i], &pdev->dev);
+
 	platform_set_drvdata(pdev, qp);
 
 	dev_info(&pdev->dev, "Registered SHIMA ICC\n");
@@ -2606,7 +2595,6 @@ err:
 		icc_node_destroy(node->id);
 	}
 
-	qcom_icc_disable_qos_deps(qp);
 	clk_bulk_put_all(qp->num_clks, qp->clks);
 
 	icc_provider_del(provider);
@@ -2708,6 +2696,12 @@ static int __init qnoc_driver_init(void)
 	return platform_driver_register(&qnoc_driver);
 }
 core_initcall(qnoc_driver_init);
+
+static void __exit qnoc_driver_exit(void)
+{
+	platform_driver_unregister(&qnoc_driver);
+}
+module_exit(qnoc_driver_exit);
 
 MODULE_DESCRIPTION("Shima NoC driver");
 MODULE_LICENSE("GPL v2");

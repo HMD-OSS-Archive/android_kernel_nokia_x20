@@ -113,14 +113,12 @@ void get_uart_status_from_xbl()
        pr_err("Fail to get any value of SMEM_ID_VENDOR0 sharememory\n");
        return;
     }
-    //pr_err("get value of SMEM_ID_VENDOR0  %d\n", *result);
-    if (*result & 0xA4) {
+    pr_err("get value of SMEM_ID_VENDOR0  %d\n", *result);
+    if (*result & 0x1) {
         hmd_enable_printk_uart = 2;
-        pr_warn("%s:set hmd_enable_printk_uart ", __func__);
     }
-    if (*result & 0xA400) {
+    if (*result & 0x2) {
         hmd_disable_printk_ratelimit = 1;
-        pr_warn("%s:set hmd_disable_printk_ratelimit ", __func__);
     }
 
     return;
@@ -239,10 +237,8 @@ static int __control_devkmsg(char *str)
 
 static int __init control_devkmsg(char *str)
 {
-	if (__control_devkmsg(str) < 0) {
-		pr_warn("printk.devkmsg: bad option string '%s'\n", str);
+	if (__control_devkmsg(str) < 0)
 		return 1;
-	}
 
 	/*
 	 * Set sysctl string accordingly:
@@ -261,7 +257,7 @@ static int __init control_devkmsg(char *str)
 	 */
 	devkmsg_log |= DEVKMSG_LOG_MASK_LOCK;
 
-	return 1;
+	return 0;
 }
 __setup("printk.devkmsg=", control_devkmsg);
 
@@ -2501,16 +2497,6 @@ static int __init console_setup(char *str)
 	char buf[sizeof(console_cmdline[0].name) + 4]; /* 4 for "ttyS" */
 	char *s, *options, *brl_options = NULL;
 	int idx;
-
-	/*
-	 * console="" or console=null have been suggested as a way to
-	 * disable console output. Use ttynull that has been created
-	 * for exacly this purpose.
-	 */
-	if (str[0] == 0 || strcmp(str, "null") == 0) {
-		__add_preferred_console("ttynull", 0, NULL, NULL);
-		return 1;
-	}
 
 	if (_braille_console_setup(&str, &brl_options))
 		return 1;

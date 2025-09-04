@@ -146,7 +146,6 @@ enum pas_id {
 static struct icc_path *scm_perf_client;
 static int scm_pas_bw_count;
 static DEFINE_MUTEX(scm_pas_bw_mutex);
-static int is_inited;
 
 static void subsys_disable_all_irqs(struct pil_tz_data *d);
 static void subsys_enable_all_irqs(struct pil_tz_data *d);
@@ -181,7 +180,7 @@ static int scm_pas_enable_bw(void)
 {
 	int ret = 0;
 
-	if (IS_ERR(scm_perf_client))
+	if (!scm_perf_client)
 		return -EINVAL;
 
 	mutex_lock(&scm_pas_bw_mutex);
@@ -758,9 +757,11 @@ static struct pil_reset_ops pil_ops_trusted = {
 	.deinit_image = pil_deinit_image_trusted,
 };
 
+
 #ifdef CONFIG_SUPPORT_CRASH_REASON
 extern void dump_subsys_fault_reason(const char *desc, const char * reason);
 #endif // #ifdef CONFIG_SUPPORT_CRASH_REASON
+
 
 static void log_failure_reason(const struct pil_tz_data *d)
 {
@@ -785,9 +786,11 @@ static void log_failure_reason(const struct pil_tz_data *d)
 	strlcpy(reason, smem_reason, min(size, (size_t)MAX_SSR_REASON_LEN));
 	pr_err("%s subsystem failure reason: %s.\n", name, reason);
 
+
 	#ifdef CONFIG_SUPPORT_CRASH_REASON
 		dump_subsys_fault_reason(name, reason);
 	#endif // #ifdef CONFIG_SUPPORT_CRASH_REASON
+
 }
 
 static int subsys_shutdown(const struct subsys_desc *subsys, bool force_stop)
@@ -879,10 +882,6 @@ static int subsys_ramdump(int enable, const struct subsys_desc *subsys)
 
 	if (!enable)
 		return 0;
-#ifdef CONFIG_QGKI_MSM_BOOT_TIME_MARKER
-	if (!strcmp(subsys->name, "modem"))
-		update_marker("M - Modem Dump start");
-#endif
 
 	return pil_do_ramdump(&d->desc, d->ramdump_dev, d->minidump_dev);
 }
@@ -927,10 +926,6 @@ static irqreturn_t subsys_err_fatal_intr_handler (int irq, void *drv_data)
 							d->subsys_desc.name);
 		return IRQ_HANDLED;
 	}
-#ifdef CONFIG_QGKI_MSM_BOOT_TIME_MARKER
-	if (!strcmp(d->subsys_desc.name, "modem"))
-		update_marker("M - Modem crash");
-#endif
 	subsys_set_crash_status(d->subsys, CRASH_STATUS_ERR_FATAL);
 	log_failure_reason(d);
 	subsystem_restart_dev(d->subsys);
@@ -1124,6 +1119,7 @@ static void unmask_scsr_irqs(struct pil_tz_data *d)
 			~BIT(d->bits_arr[PBL_DONE]), d->irq_mask);
 }
 
+
 #ifdef CONFIG_SUPPORT_RESTART_MODEM
 struct pil_tz_data *modem_pdata = NULL;
 void restart_modem_by_sysnode(void)
@@ -1137,6 +1133,7 @@ void restart_modem_by_sysnode(void)
 	pr_err("%s: modem_pdata is NULL\n", __func__);
 }
 #endif
+
 
 static void subsys_enable_all_irqs(struct pil_tz_data *d)
 {
@@ -1375,7 +1372,7 @@ static int pil_tz_generic_probe(struct platform_device *pdev)
 	 * is not yet registered. Return error if that driver returns with
 	 * any error other than EPROBE_DEFER.
 	 */
-	if (!is_inited)
+	if (!scm_perf_client)
 		return -EPROBE_DEFER;
 	if (IS_ERR(scm_perf_client))
 		return PTR_ERR(scm_perf_client);
@@ -1471,7 +1468,7 @@ static int pil_tz_generic_probe(struct platform_device *pdev)
 		if (IS_ERR(d->rmb_gp_reg)) {
 			dev_err(&pdev->dev, "Invalid resource for rmb_gp_reg\n");
 			rc = PTR_ERR(d->rmb_gp_reg);
-			goto load_from_pil;
+			goto err_ramdump;
 		}
 
 		rmb_gp_reg_val = __raw_readl(d->rmb_gp_reg);
@@ -1486,7 +1483,7 @@ static int pil_tz_generic_probe(struct platform_device *pdev)
 			pr_info("spss is brought out of reset by UEFI\n");
 			d->subsys_desc.powerup = subsys_powerup_boot_enabled;
 		}
-load_from_pil:
+
 		res = platform_get_resource_byname(pdev, IORESOURCE_MEM,
 						"sp2soc_irq_status");
 		d->irq_status = devm_ioremap_resource(&pdev->dev, res);
@@ -1583,12 +1580,14 @@ load_from_pil:
 		goto err_subsys;
 	}
 
+
     #ifdef CONFIG_SUPPORT_RESTART_MODEM
 	if (d->pas_id == PAS_MODEM_SW) {
 		pr_err("create restart mode node\n");
 		modem_pdata = d;
 	}
 	#endif
+
 
 	rc = subsys_setup_irqs(pdev);
 	if (rc) {
@@ -1620,7 +1619,6 @@ static int pil_tz_scm_pas_probe(struct platform_device *pdev)
 		ret = PTR_ERR(scm_perf_client);
 		pr_err("scm-pas: Unable to register bus client: %d\n", ret);
 	}
-	is_inited = 1;
 
 	return ret;
 }

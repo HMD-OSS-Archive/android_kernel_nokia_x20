@@ -363,6 +363,7 @@ static const struct regmap_config hda_regmap_cfg = {
 	.reg_write = hda_reg_write,
 	.use_single_read = true,
 	.use_single_write = true,
+	.disable_locking = true,
 };
 
 /**
@@ -596,9 +597,10 @@ EXPORT_SYMBOL_GPL(snd_hdac_regmap_update_raw_once);
  */
 void snd_hdac_regmap_sync(struct hdac_device *codec)
 {
-	mutex_lock(&codec->regmap_lock);
-	if (codec->regmap)
+	if (codec->regmap) {
+		mutex_lock(&codec->regmap_lock);
 		regcache_sync(codec->regmap);
-	mutex_unlock(&codec->regmap_lock);
+		mutex_unlock(&codec->regmap_lock);
+	}
 }
 EXPORT_SYMBOL_GPL(snd_hdac_regmap_sync);

@@ -261,10 +261,6 @@ alc-sense-combo
 huawei-mbx-stereo
     Enable initialization verbs for Huawei MBX stereo speakers;
     might be risky, try this at your own risk
-alc298-samsung-headphone
-    Samsung laptops with ALC298
-alc256-samsung-headphone
-    Samsung laptops with ALC256
 
 ALC66x/67x/892
 ==============
@@ -702,7 +698,7 @@ ref
 no-jd
     BIOS setup but without jack-detection
 intel
-    Intel D*45* mobos
+    Intel DG45* mobos
 dell-m6-amic
     Dell desktops/laptops with analog mics
 dell-m6-dmic

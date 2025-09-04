@@ -287,8 +287,6 @@ static int _sci_clk_build(struct sci_clk_provider *provider,
 
 	name = kasprintf(GFP_KERNEL, "clk:%d:%d", sci_clk->dev_id,
 			 sci_clk->clk_id);
-	if (!name)
-		return -ENOMEM;
 
 	init.name = name;
 
@@ -524,7 +522,7 @@ static int ti_sci_scan_clocks_from_dt(struct sci_clk_provider *provider)
 		np = of_find_node_with_property(np, *clk_name);
 		if (!np) {
 			clk_name++;
-			continue;
+			break;
 		}
 
 		if (!of_device_is_available(np))

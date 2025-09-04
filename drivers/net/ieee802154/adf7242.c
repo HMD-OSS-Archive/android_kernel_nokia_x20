@@ -882,9 +882,7 @@ static int adf7242_rx(struct adf7242_local *lp)
 	int ret;
 	u8 lqi, len_u8, *data;
 
-	ret = adf7242_read_reg(lp, 0, &len_u8);
-	if (ret)
-		return ret;
+	adf7242_read_reg(lp, 0, &len_u8);
 
 	len = len_u8;
 
@@ -1310,11 +1308,10 @@ static int adf7242_remove(struct spi_device *spi)
 
 	debugfs_remove_recursive(lp->debugfs_root);
 
-	ieee802154_unregister_hw(lp->hw);
-
 	cancel_delayed_work_sync(&lp->work);
 	destroy_workqueue(lp->wqueue);
 
+	ieee802154_unregister_hw(lp->hw);
 	mutex_destroy(&lp->bmux);
 	ieee802154_free_hw(lp->hw);
 

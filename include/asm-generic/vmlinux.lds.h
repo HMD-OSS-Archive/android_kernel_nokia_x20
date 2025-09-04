@@ -115,17 +115,17 @@
 #endif
 
 #ifdef CONFIG_FTRACE_MCOUNT_RECORD
-/*
- * The ftrace call sites are logged to a section whose name depends on the
- * compiler option used. A given kernel image will only use one, AKA
- * FTRACE_CALLSITE_SECTION. We capture all of them here to avoid header
- * dependencies for FTRACE_CALLSITE_SECTION's definition.
- */
+#ifdef CC_USING_PATCHABLE_FUNCTION_ENTRY
+#define MCOUNT_REC()	. = ALIGN(8);				\
+			__start_mcount_loc = .;			\
+			KEEP(*(__patchable_function_entries))	\
+			__stop_mcount_loc = .;
+#else
 #define MCOUNT_REC()	. = ALIGN(8);				\
 			__start_mcount_loc = .;			\
 			KEEP(*(__mcount_loc))			\
-			KEEP(*(__patchable_function_entries))	\
 			__stop_mcount_loc = .;
+#endif
 #else
 #define MCOUNT_REC()
 #endif
@@ -278,7 +278,6 @@
 #define DATA_DATA							\
 	*(.xiptext)							\
 	*(DATA_MAIN)							\
-	*(.data..decrypted)						\
 	*(.ref.data)							\
 	*(.data..shared_aligned) /* percpu related */			\
 	MEM_KEEP(init.data*)						\
@@ -402,7 +401,7 @@
 	}								\
 									\
 	/* Built-in firmware blobs */					\
-	.builtin_fw : AT(ADDR(.builtin_fw) - LOAD_OFFSET) ALIGN(8) {	\
+	.builtin_fw        : AT(ADDR(.builtin_fw) - LOAD_OFFSET) {	\
 		__start_builtin_fw = .;					\
 		KEEP(*(.builtin_fw))					\
 		__end_builtin_fw = .;					\
@@ -517,15 +516,6 @@
 #define RO_DATA(align)  RO_DATA_SECTION(align)
 
 /*
- * Non-instrumentable text section
- */
-#define NOINSTR_TEXT							\
-		ALIGN_FUNCTION();					\
-		__noinstr_text_start = .;				\
-		*(.noinstr.text)					\
-		__noinstr_text_end = .;
-
-/*
  * .text section. Map to function alignment to avoid address changes
  * during second ld run in second ld pass when generating System.map
  *
@@ -535,17 +525,11 @@
  */
 #define TEXT_TEXT							\
 		ALIGN_FUNCTION();					\
-		*(.text.hot .text.hot.*)				\
-		*(TEXT_MAIN .text.fixup)				\
-		*(.text.unlikely .text.unlikely.*)			\
-		*(.text.unknown .text.unknown.*)			\
+		*(.text.hot TEXT_MAIN .text.fixup .text.unlikely)	\
 		*(TEXT_CFI_MAIN)					\
-		NOINSTR_TEXT						\
 		*(.text..refcount)					\
-                NOINSTR_TEXT						\
 		*(.text..ftrace)					\
 		*(.ref.text)						\
-		*(.text.asan.* .text.tsan.*)				\
 	MEM_KEEP(init.text*)						\
 	MEM_KEEP(exit.text*)						\
 
@@ -622,7 +606,7 @@
 #define BTF								\
 	.BTF : AT(ADDR(.BTF) - LOAD_OFFSET) {				\
 		__start_BTF = .;					\
-		KEEP(*(.BTF))						\
+		*(.BTF)							\
 		__stop_BTF = .;						\
 	}
 #else
@@ -766,13 +750,8 @@
 		/* DWARF 4 */						\
 		.debug_types	0 : { *(.debug_types) }			\
 		/* DWARF 5 */						\
-		.debug_addr	0 : { *(.debug_addr) }			\
-		.debug_line_str	0 : { *(.debug_line_str) }		\
-		.debug_loclists	0 : { *(.debug_loclists) }		\
 		.debug_macro	0 : { *(.debug_macro) }			\
-		.debug_names	0 : { *(.debug_names) }			\
-		.debug_rnglists	0 : { *(.debug_rnglists) }		\
-		.debug_str_offsets	0 : { *(.debug_str_offsets) }
+		.debug_addr	0 : { *(.debug_addr) }
 
 		/* Stabs debugging sections.  */
 #define STABS_DEBUG							\
@@ -833,12 +812,7 @@
 #define TRACEDATA
 #endif
 
-/*
- * Discard .note.GNU-stack, which is emitted as PROGBITS by the compiler.
- * Otherwise, the type of .notes section would become PROGBITS instead of NOTES.
- */
 #define NOTES								\
-	/DISCARD/ : { *(.note.GNU-stack) }				\
 	.notes : AT(ADDR(.notes) - LOAD_OFFSET) {			\
 		__start_notes = .;					\
 		KEEP(*(.note.*))					\
@@ -913,17 +887,10 @@
  * section definitions so that such archs put those in earlier section
  * definitions.
  */
-#ifdef RUNTIME_DISCARD_EXIT
-#define EXIT_DISCARDS
-#else
-#define EXIT_DISCARDS							\
-	EXIT_TEXT							\
-	EXIT_DATA
-#endif
-
 #define DISCARDS							\
 	/DISCARD/ : {							\
-	EXIT_DISCARDS							\
+	EXIT_TEXT							\
+	EXIT_DATA							\
 	EXIT_CALL							\
 	*(.discard)							\
 	*(.discard.*)							\

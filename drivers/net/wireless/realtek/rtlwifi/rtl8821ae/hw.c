@@ -3644,7 +3644,7 @@ static void rtl8821ae_update_hal_rate_mask(struct ieee80211_hw *hw,
 		ratr_index = RATR_INX_WIRELESS_AC_5N;
 
 		if (rf_type == RF_1T1R) {
-			if (rssi_level == 1)	/*add by Gary for ac-series*/
+			if (rssi_level == 1)
 				ratr_bitmap &= 0x003f8000;
 			else if (rssi_level == 2)
 				ratr_bitmap &= 0x003ff000;

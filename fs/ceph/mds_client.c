@@ -1272,6 +1272,7 @@ static void cleanup_session_requests(struct ceph_mds_client *mdsc,
 {
 	struct ceph_mds_request *req;
 	struct rb_node *p;
+	struct ceph_inode_info *ci;
 
 	dout("cleanup_session_requests mds%d\n", session->s_mds);
 	mutex_lock(&mdsc->mutex);
@@ -1280,10 +1281,16 @@ static void cleanup_session_requests(struct ceph_mds_client *mdsc,
 				       struct ceph_mds_request, r_unsafe_item);
 		pr_warn_ratelimited(" dropping unsafe request %llu\n",
 				    req->r_tid);
-		if (req->r_target_inode)
-			mapping_set_error(req->r_target_inode->i_mapping, -EIO);
-		if (req->r_unsafe_dir)
-			mapping_set_error(req->r_unsafe_dir->i_mapping, -EIO);
+		if (req->r_target_inode) {
+			/* dropping unsafe change of inode's attributes */
+			ci = ceph_inode(req->r_target_inode);
+			errseq_set(&ci->i_meta_err, -EIO);
+		}
+		if (req->r_unsafe_dir) {
+			/* dropping unsafe directory operation */
+			ci = ceph_inode(req->r_unsafe_dir);
+			errseq_set(&ci->i_meta_err, -EIO);
+		}
 		__unregister_request(mdsc, req);
 	}
 	/* zero r_attempts, so kick_requests() will re-send requests */
@@ -1429,7 +1436,7 @@ static int remove_session_caps_cb(struct inode *inode, struct ceph_cap *cap,
 		spin_unlock(&mdsc->cap_dirty_lock);
 
 		if (dirty_dropped) {
-			mapping_set_error(inode->i_mapping, -EIO);
+			errseq_set(&ci->i_meta_err, -EIO);
 
 			if (ci->i_wrbuffer_ref_head == 0 &&
 			    ci->i_wr_ref == 0 &&
@@ -3151,12 +3158,6 @@ static void handle_session(struct ceph_mds_session *session,
 		break;
 
 	case CEPH_SESSION_FLUSHMSG:
-		/* flush cap releases */
-		spin_lock(&session->s_cap_lock);
-		if (session->s_num_cap_releases)
-			ceph_flush_cap_releases(mdsc, session);
-		spin_unlock(&session->s_cap_lock);
-
 		send_flushmsg_ack(mdsc, session, seq);
 		break;
 
@@ -4048,34 +4049,24 @@ static void maybe_recover_session(struct ceph_mds_client *mdsc)
 }
 
 /*
- * delayed work -- periodically trim expired leases, renew caps with mds.  If
- * the @delay parameter is set to 0 or if it's more than 5 secs, the default
- * workqueue delay value of 5 secs will be used.
+ * delayed work -- periodically trim expired leases, renew caps with mds
  */
-static void schedule_delayed(struct ceph_mds_client *mdsc, unsigned long delay)
+static void schedule_delayed(struct ceph_mds_client *mdsc)
 {
-	unsigned long max_delay = HZ * 5;
-
-	/* 5 secs default delay */
-	if (!delay || (delay > max_delay))
-		delay = max_delay;
-	schedule_delayed_work(&mdsc->delayed_work,
-			      round_jiffies_relative(delay));
+	int delay = 5;
+	unsigned hz = round_jiffies_relative(HZ * delay);
+	schedule_delayed_work(&mdsc->delayed_work, hz);
 }
 
 static void delayed_work(struct work_struct *work)
 {
+	int i;
 	struct ceph_mds_client *mdsc =
 		container_of(work, struct ceph_mds_client, delayed_work.work);
-	unsigned long delay;
 	int renew_interval;
 	int renew_caps;
-	int i;
 
 	dout("mdsc delayed_work\n");
-
-	if (mdsc->stopping >= CEPH_MDSC_STOPPING_FLUSHED)
-		return;
 
 	mutex_lock(&mdsc->mutex);
 	renew_interval = mdsc->mdsmap->m_session_timeout >> 2;
@@ -4125,7 +4116,7 @@ static void delayed_work(struct work_struct *work)
 	}
 	mutex_unlock(&mdsc->mutex);
 
-	delay = ceph_check_delayed_caps(mdsc);
+	ceph_check_delayed_caps(mdsc);
 
 	ceph_queue_cap_reclaim_work(mdsc);
 
@@ -4133,7 +4124,7 @@ static void delayed_work(struct work_struct *work)
 
 	maybe_recover_session(mdsc);
 
-	schedule_delayed(mdsc, delay);
+	schedule_delayed(mdsc);
 }
 
 int ceph_mdsc_init(struct ceph_fs_client *fsc)
@@ -4174,7 +4165,6 @@ int ceph_mdsc_init(struct ceph_fs_client *fsc)
 	INIT_DELAYED_WORK(&mdsc->delayed_work, delayed_work);
 	mdsc->last_renew_caps = jiffies;
 	INIT_LIST_HEAD(&mdsc->cap_delay_list);
-	INIT_LIST_HEAD(&mdsc->cap_wait_list);
 	spin_lock_init(&mdsc->cap_delay_lock);
 	INIT_LIST_HEAD(&mdsc->snap_flush_list);
 	spin_lock_init(&mdsc->snap_flush_lock);
@@ -4246,7 +4236,7 @@ static void wait_requests(struct ceph_mds_client *mdsc)
 void ceph_mdsc_pre_umount(struct ceph_mds_client *mdsc)
 {
 	dout("pre_umount\n");
-	mdsc->stopping = CEPH_MDSC_STOPPING_BEGIN;
+	mdsc->stopping = 1;
 
 	lock_unlock_sessions(mdsc);
 	ceph_flush_dirty_caps(mdsc);
@@ -4443,16 +4433,7 @@ void ceph_mdsc_force_umount(struct ceph_mds_client *mdsc)
 static void ceph_mdsc_stop(struct ceph_mds_client *mdsc)
 {
 	dout("stop\n");
-	/*
-	 * Make sure the delayed work stopped before releasing
-	 * the resources.
-	 *
-	 * Because the cancel_delayed_work_sync() will only
-	 * guarantee that the work finishes executing. But the
-	 * delayed work will re-arm itself again after that.
-	 */
-	flush_delayed_work(&mdsc->delayed_work);
-
+	cancel_delayed_work_sync(&mdsc->delayed_work); /* cancel timer */
 	if (mdsc->mdsmap)
 		ceph_mdsmap_destroy(mdsc->mdsmap);
 	kfree(mdsc->sessions);
@@ -4607,7 +4588,7 @@ void ceph_mdsc_handle_mdsmap(struct ceph_mds_client *mdsc, struct ceph_msg *msg)
 			  mdsc->mdsmap->m_epoch);
 
 	mutex_unlock(&mdsc->mutex);
-	schedule_delayed(mdsc, 0);
+	schedule_delayed(mdsc);
 	return;
 
 bad_unlock:

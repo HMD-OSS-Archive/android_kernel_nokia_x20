@@ -90,6 +90,6 @@ extern int his_of_get_u32_array(struct device_node *np, const char *prop_name,
 /* create debug flag sysfs attr */
 extern void debug_flag_control_init(void);
 
-extern unsigned long get_hs_total_ram(void);
+
 
 #endif	/* __HIS_DEBUG_CONTROL_NODE_H__ */

@@ -130,10 +130,6 @@ union swap_header {
  */
 struct reclaim_state {
 	unsigned long reclaimed_slab;
-#ifdef CONFIG_LRU_GEN
-	/* per-thread mm walk data */
-	struct lru_gen_mm_walk *mm_walk;
-#endif
 };
 
 #ifdef __KERNEL__
@@ -483,7 +479,6 @@ struct backing_dev_info;
 extern int init_swap_address_space(unsigned int type, unsigned long nr_pages);
 extern void exit_swap_address_space(unsigned int type);
 extern struct swap_info_struct *get_swap_device(swp_entry_t entry);
-sector_t swap_page_sector(struct page *page);
 
 static inline void put_swap_device(struct swap_info_struct *si)
 {

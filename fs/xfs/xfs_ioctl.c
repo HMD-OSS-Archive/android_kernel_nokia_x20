@@ -667,31 +667,6 @@ xfs_ioc_space(
 		goto out_unlock;
 	}
 
-	/*
-	 * Must wait for all AIO to complete before we continue as AIO can
-	 * change the file size on completion without holding any locks we
-	 * currently hold. We must do this first because AIO can update both
-	 * the on disk and in memory inode sizes, and the operations that follow
-	 * require the in-memory size to be fully up-to-date.
-	 */
-	inode_dio_wait(inode);
-
-	/*
-	 * Now that AIO and DIO has drained we can flush and (if necessary)
-	 * invalidate the cached range over the first operation we are about to
-	 * run. We include zero range here because it starts with a hole punch
-	 * over the target range.
-	 */
-	switch (cmd) {
-	case XFS_IOC_ZERO_RANGE:
-	case XFS_IOC_UNRESVSP:
-	case XFS_IOC_UNRESVSP64:
-		error = xfs_flush_unmap_range(ip, bf->l_start, bf->l_len);
-		if (error)
-			goto out_unlock;
-		break;
-	}
-
 	switch (cmd) {
 	case XFS_IOC_ZERO_RANGE:
 		flags |= XFS_PREALLOC_SET;
@@ -714,8 +689,7 @@ xfs_ioc_space(
 		flags |= XFS_PREALLOC_CLEAR;
 		if (bf->l_start > XFS_ISIZE(ip)) {
 			error = xfs_alloc_file_space(ip, XFS_ISIZE(ip),
-					bf->l_start - XFS_ISIZE(ip),
-					XFS_BMAPI_PREALLOC);
+					bf->l_start - XFS_ISIZE(ip), 0);
 			if (error)
 				goto out_unlock;
 		}
@@ -1144,7 +1118,7 @@ xfs_fill_fsxattr(
 	fa->fsx_extsize = ip->i_d.di_extsize << ip->i_mount->m_sb.sb_blocklog;
 	fa->fsx_cowextsize = ip->i_d.di_cowextsize <<
 			ip->i_mount->m_sb.sb_blocklog;
-	fa->fsx_projid = ip->i_d.di_projid;
+	fa->fsx_projid = xfs_get_projid(ip);
 
 	if (attr) {
 		if (ip->i_afp) {
@@ -1299,7 +1273,7 @@ xfs_ioctl_setattr_xflags(
 
 	/* diflags2 only valid for v3 inodes. */
 	di_flags2 = xfs_flags2diflags2(ip, fa->fsx_xflags);
-	if (di_flags2 && !xfs_sb_version_has_v3inode(&mp->m_sb))
+	if (di_flags2 && ip->i_d.di_version < 3)
 		return -EINVAL;
 
 	ip->i_d.di_flags = xfs_flags2diflags(ip, fa->fsx_xflags);
@@ -1510,7 +1484,8 @@ xfs_ioctl_setattr_check_cowextsize(
 	if (!(fa->fsx_xflags & FS_XFLAG_COWEXTSIZE))
 		return 0;
 
-	if (!xfs_sb_version_hasreflink(&ip->i_mount->m_sb))
+	if (!xfs_sb_version_hasreflink(&ip->i_mount->m_sb) ||
+	    ip->i_d.di_version != 3)
 		return -EINVAL;
 
 	if (fa->fsx_cowextsize == 0)
@@ -1571,9 +1546,9 @@ xfs_ioctl_setattr(
 	 * because the i_*dquot fields will get updated anyway.
 	 */
 	if (XFS_IS_QUOTA_ON(mp)) {
-		code = xfs_qm_vop_dqalloc(ip, VFS_I(ip)->i_uid,
-				VFS_I(ip)->i_gid, fa->fsx_projid,
-				XFS_QMOPT_PQUOTA, &udqp, NULL, &pdqp);
+		code = xfs_qm_vop_dqalloc(ip, ip->i_d.di_uid,
+					 ip->i_d.di_gid, fa->fsx_projid,
+					 XFS_QMOPT_PQUOTA, &udqp, NULL, &pdqp);
 		if (code)
 			return code;
 	}
@@ -1596,7 +1571,7 @@ xfs_ioctl_setattr(
 	}
 
 	if (XFS_IS_QUOTA_RUNNING(mp) && XFS_IS_PQUOTA_ON(mp) &&
-	    ip->i_d.di_projid != fa->fsx_projid) {
+	    xfs_get_projid(ip) != fa->fsx_projid) {
 		code = xfs_qm_vop_chown_reserve(tp, ip, udqp, NULL, pdqp,
 				capable(CAP_FOWNER) ?  XFS_QMOPT_FORCE_RES : 0);
 		if (code)	/* out of quota */
@@ -1633,12 +1608,13 @@ xfs_ioctl_setattr(
 		VFS_I(ip)->i_mode &= ~(S_ISUID|S_ISGID);
 
 	/* Change the ownerships and register project quota modifications */
-	if (ip->i_d.di_projid != fa->fsx_projid) {
+	if (xfs_get_projid(ip) != fa->fsx_projid) {
 		if (XFS_IS_QUOTA_RUNNING(mp) && XFS_IS_PQUOTA_ON(mp)) {
 			olddquot = xfs_qm_vop_chown(tp, ip,
 						&ip->i_pdquot, pdqp);
 		}
-		ip->i_d.di_projid = fa->fsx_projid;
+		ASSERT(ip->i_d.di_version > 1);
+		xfs_set_projid(ip, fa->fsx_projid);
 	}
 
 	/*
@@ -1650,7 +1626,7 @@ xfs_ioctl_setattr(
 		ip->i_d.di_extsize = fa->fsx_extsize >> mp->m_sb.sb_blocklog;
 	else
 		ip->i_d.di_extsize = 0;
-	if (xfs_sb_version_has_v3inode(&mp->m_sb) &&
+	if (ip->i_d.di_version == 3 &&
 	    (ip->i_d.di_flags2 & XFS_DIFLAG2_COWEXTSIZE))
 		ip->i_d.di_cowextsize = fa->fsx_cowextsize >>
 				mp->m_sb.sb_blocklog;
@@ -1855,17 +1831,39 @@ out_free_buf:
 	return error;
 }
 
+struct getfsmap_info {
+	struct xfs_mount	*mp;
+	struct fsmap_head __user *data;
+	unsigned int		idx;
+	__u32			last_flags;
+};
+
+STATIC int
+xfs_getfsmap_format(struct xfs_fsmap *xfm, void *priv)
+{
+	struct getfsmap_info	*info = priv;
+	struct fsmap		fm;
+
+	trace_xfs_getfsmap_mapping(info->mp, xfm);
+
+	info->last_flags = xfm->fmr_flags;
+	xfs_fsmap_from_internal(&fm, xfm);
+	if (copy_to_user(&info->data->fmh_recs[info->idx++], &fm,
+			sizeof(struct fsmap)))
+		return -EFAULT;
+
+	return 0;
+}
+
 STATIC int
 xfs_ioc_getfsmap(
 	struct xfs_inode	*ip,
 	struct fsmap_head	__user *arg)
 {
+	struct getfsmap_info	info = { NULL };
 	struct xfs_fsmap_head	xhead = {0};
 	struct fsmap_head	head;
-	struct fsmap		*recs;
-	unsigned int		count;
-	__u32			last_flags = 0;
-	bool			done = false;
+	bool			aborted = false;
 	int			error;
 
 	if (copy_from_user(&head, arg, sizeof(struct fsmap_head)))
@@ -1877,112 +1875,38 @@ xfs_ioc_getfsmap(
 		       sizeof(head.fmh_keys[1].fmr_reserved)))
 		return -EINVAL;
 
-	/*
-	 * Use an internal memory buffer so that we don't have to copy fsmap
-	 * data to userspace while holding locks.  Start by trying to allocate
-	 * up to 128k for the buffer, but fall back to a single page if needed.
-	 */
-	count = min_t(unsigned int, head.fmh_count,
-			131072 / sizeof(struct fsmap));
-	recs = kvzalloc(count * sizeof(struct fsmap), GFP_KERNEL);
-	if (!recs) {
-		count = min_t(unsigned int, head.fmh_count,
-				PAGE_SIZE / sizeof(struct fsmap));
-		recs = kvzalloc(count * sizeof(struct fsmap), GFP_KERNEL);
-		if (!recs)
-			return -ENOMEM;
-	}
-
 	xhead.fmh_iflags = head.fmh_iflags;
+	xhead.fmh_count = head.fmh_count;
 	xfs_fsmap_to_internal(&xhead.fmh_keys[0], &head.fmh_keys[0]);
 	xfs_fsmap_to_internal(&xhead.fmh_keys[1], &head.fmh_keys[1]);
 
 	trace_xfs_getfsmap_low_key(ip->i_mount, &xhead.fmh_keys[0]);
 	trace_xfs_getfsmap_high_key(ip->i_mount, &xhead.fmh_keys[1]);
 
-	head.fmh_entries = 0;
-	do {
-		struct fsmap __user	*user_recs;
-		struct fsmap		*last_rec;
+	info.mp = ip->i_mount;
+	info.data = arg;
+	error = xfs_getfsmap(ip->i_mount, &xhead, xfs_getfsmap_format, &info);
+	if (error == -ECANCELED) {
+		error = 0;
+		aborted = true;
+	} else if (error)
+		return error;
 
-		user_recs = &arg->fmh_recs[head.fmh_entries];
-		xhead.fmh_entries = 0;
-		xhead.fmh_count = min_t(unsigned int, count,
-					head.fmh_count - head.fmh_entries);
-
-		/* Run query, record how many entries we got. */
-		error = xfs_getfsmap(ip->i_mount, &xhead, recs);
-		switch (error) {
-		case 0:
-			/*
-			 * There are no more records in the result set.  Copy
-			 * whatever we got to userspace and break out.
-			 */
-			done = true;
-			break;
-		case -ECANCELED:
-			/*
-			 * The internal memory buffer is full.  Copy whatever
-			 * records we got to userspace and go again if we have
-			 * not yet filled the userspace buffer.
-			 */
-			error = 0;
-			break;
-		default:
-			goto out_free;
-		}
-		head.fmh_entries += xhead.fmh_entries;
-		head.fmh_oflags = xhead.fmh_oflags;
-
-		/*
-		 * If the caller wanted a record count or there aren't any
-		 * new records to return, we're done.
-		 */
-		if (head.fmh_count == 0 || xhead.fmh_entries == 0)
-			break;
-
-		/* Copy all the records we got out to userspace. */
-		if (copy_to_user(user_recs, recs,
-				 xhead.fmh_entries * sizeof(struct fsmap))) {
-			error = -EFAULT;
-			goto out_free;
-		}
-
-		/* Remember the last record flags we copied to userspace. */
-		last_rec = &recs[xhead.fmh_entries - 1];
-		last_flags = last_rec->fmr_flags;
-
-		/* Set up the low key for the next iteration. */
-		xfs_fsmap_to_internal(&xhead.fmh_keys[0], last_rec);
-		trace_xfs_getfsmap_low_key(ip->i_mount, &xhead.fmh_keys[0]);
-	} while (!done && head.fmh_entries < head.fmh_count);
-
-	/*
-	 * If there are no more records in the query result set and we're not
-	 * in counting mode, mark the last record returned with the LAST flag.
-	 */
-	if (done && head.fmh_count > 0 && head.fmh_entries > 0) {
-		struct fsmap __user	*user_rec;
-
-		last_flags |= FMR_OF_LAST;
-		user_rec = &arg->fmh_recs[head.fmh_entries - 1];
-
-		if (copy_to_user(&user_rec->fmr_flags, &last_flags,
-					sizeof(last_flags))) {
-			error = -EFAULT;
-			goto out_free;
-		}
+	/* If we didn't abort, set the "last" flag in the last fmx */
+	if (!aborted && info.idx) {
+		info.last_flags |= FMR_OF_LAST;
+		if (copy_to_user(&info.data->fmh_recs[info.idx - 1].fmr_flags,
+				&info.last_flags, sizeof(info.last_flags)))
+			return -EFAULT;
 	}
 
 	/* copy back header */
-	if (copy_to_user(arg, &head, sizeof(struct fsmap_head))) {
-		error = -EFAULT;
-		goto out_free;
-	}
+	head.fmh_entries = xhead.fmh_entries;
+	head.fmh_oflags = xhead.fmh_oflags;
+	if (copy_to_user(arg, &head, sizeof(struct fsmap_head)))
+		return -EFAULT;
 
-out_free:
-	kmem_free(recs);
-	return error;
+	return 0;
 }
 
 STATIC int

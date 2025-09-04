@@ -17,7 +17,8 @@
 #include <linux/pm_runtime.h>
 #include "atl_macsec.h"
 #include "atl_ptp.h"
-#include "atl_fwd.h"
+
+#include "atl_ipa.h"
 
 const char atl_driver_name[] = "atlantic-fwd";
 
@@ -385,7 +386,7 @@ int atl_do_reset(struct atl_nic *nic)
 
 	hw->mcp.ops->dump_cfg(hw);
 
-	atl_stop(nic, false);
+	atl_stop(nic, true);
 
 	atl_fwd_suspend_rings(nic);
 
@@ -440,10 +441,6 @@ int atl_fw_configure(struct atl_hw *hw)
 
 	ret = hw->mcp.ops->set_mediadetect(hw,
 			!!(nic->priv_flags & ATL_PF_BIT(MEDIA_DETECT)));
-	if (ret && ret != -EOPNOTSUPP)
-		return ret;
-	ret = hw->mcp.ops->set_downshift(hw,
-			!!(nic->priv_flags & ATL_PF_BIT(DOWNSHIFT)));
 	if (ret && ret != -EOPNOTSUPP)
 		return ret;
 	ret = hw->mcp.ops->set_pad_stripping(hw,
@@ -601,7 +598,6 @@ static int atl_probe(struct pci_dev *pdev, const struct pci_device_id *id)
 		goto err_ioremap;
 	}
 
-	nic->priv_flags = ATL_PF_BIT(DOWNSHIFT);
 	ret = atl_hwinit(hw, id->driver_data);
 	if (ret)
 		goto err_hwinit;
@@ -766,7 +762,9 @@ static void atl_remove(struct pci_dev *pdev)
 	atl_ptp_unregister(nic);
 	unregister_netdev(nic->ndev);
 
+#if IS_ENABLED(CONFIG_ATLFWD_FWD)
 	atl_fwd_release_rings(nic);
+#endif
 
 	atl_clear_datapath(nic);
 
@@ -947,47 +945,6 @@ static int atl_pm_runtime_idle(struct device *dev)
 	return -EBUSY;
 }
 
-#if (LINUX_VERSION_CODE > KERNEL_VERSION(4, 13, 0))
-static void atl_reset_prepare(struct pci_dev *pdev)
-{
-	struct atl_nic *nic = pci_get_drvdata(pdev);
-
-	pm_runtime_get_sync(&nic->hw.pdev->dev);
-	rtnl_lock();
-
-	if (netif_running(nic->ndev))
-		atl_stop(nic, false);
-
-	rtnl_unlock();
-	pm_runtime_put_sync(&nic->hw.pdev->dev);
-}
-
-static void atl_reset_done(struct pci_dev *pdev)
-{
-	struct atl_nic *nic = pci_get_drvdata(pdev);
-
-	if (!nic) {
-		dev_err(&pdev->dev, "%s failed, device is unrecoverable\n",
-				__func__);
-		return;
-	}
-
-	pm_runtime_get_sync(&nic->hw.pdev->dev);
-	rtnl_lock();
-
-	if (netif_running(nic->ndev))
-		atl_start(nic);
-
-	rtnl_unlock();
-	pm_runtime_put_sync(&nic->hw.pdev->dev);
-}
-
-static const struct pci_error_handlers atl_err_handlers = {
-        .reset_prepare = atl_reset_prepare,
-        .reset_done = atl_reset_done,
-};
-#endif
-
 const struct dev_pm_ops atl_pm_ops = {
 	.suspend = atl_suspend_poweroff,
 	.poweroff = atl_suspend_poweroff,
@@ -1008,11 +965,6 @@ static struct pci_driver atl_pci_ops = {
 #ifdef CONFIG_PM
 	.driver.pm = &atl_pm_ops,
 #endif
-
-#if (LINUX_VERSION_CODE > KERNEL_VERSION(4, 13, 0))
-        .err_handler = &atl_err_handlers,
-#endif
-
 };
 
 struct atl_thermal atl_def_thermal;
@@ -1080,6 +1032,13 @@ static int __init atl_module_init(void)
 		return -ENOMEM;
 	}
 
+	ret = atl_ipa_register(&atl_pci_ops);
+	if (ret) {
+		pr_err("%s: Failed to register driver with platform\n",
+		       atl_driver_name);
+		goto err_ipa_reg;
+	}
+
 	ret = pci_register_driver(&atl_pci_ops);
 	if (ret)
 		goto err_pci_reg;
@@ -1097,6 +1056,8 @@ err_fwd_netlink:
 #endif
 	pci_unregister_driver(&atl_pci_ops);
 err_pci_reg:
+	atl_ipa_unregister(&atl_pci_ops);
+err_ipa_reg:
 	destroy_workqueue(atl_wq);
 	return ret;
 }
@@ -1109,6 +1070,8 @@ static void __exit atl_module_exit(void)
 #endif
 
 	pci_unregister_driver(&atl_pci_ops);
+
+	atl_ipa_unregister(&atl_pci_ops);
 
 	if (atl_wq) {
 		destroy_workqueue(atl_wq);

@@ -232,5 +232,4 @@ source "drivers/counter/Kconfig"
 
 source "drivers/chino-e/Kconfig"
 
-source "drivers/silead/Kconfig"
 endmenu

@@ -287,10 +287,8 @@ config FRAME_WARN
 	int "Warn for stack frames larger than (needs gcc 4.4)"
 	range 0 8192
 	default 2048 if GCC_PLUGIN_LATENT_ENTROPY
-	default 2048 if PARISC
-	default 1536 if (!64BIT && XTENSA)
-	default 1280 if KASAN && !64BIT
-	default 1024 if !64BIT
+	default 1280 if (!64BIT && PARISC)
+	default 1024 if (!64BIT && !PARISC)
 	default 2048 if 64BIT
 	help
 	  Tell gcc to warn at build time for stack frames larger than this.
@@ -904,6 +902,7 @@ config HARDLOCKUP_DETECTOR
 	depends on HAVE_HARDLOCKUP_DETECTOR_PERF || HAVE_HARDLOCKUP_DETECTOR_ARCH
 	select LOCKUP_DETECTOR
 	select HARDLOCKUP_DETECTOR_PERF if HAVE_HARDLOCKUP_DETECTOR_PERF
+	select HARDLOCKUP_DETECTOR_ARCH if HAVE_HARDLOCKUP_DETECTOR_ARCH
 	help
 	  Say Y here to enable the kernel to act as a watchdog to detect
 	  hard lockups.
@@ -1369,7 +1368,8 @@ config WARN_ALL_UNSEEDED_RANDOM
 	  so architecture maintainers really need to do what they can
 	  to get the CRNG seeded sooner after the system is booted.
 	  However, since users cannot do anything actionable to
-	  address this, by default this option is disabled.
+	  address this, by default the kernel will issue only a single
+	  warning for the first use of unseeded randomness.
 
 	  Say Y here if you want to receive warnings for all uses of
 	  unseeded randomness.  This will be of use primarily for
@@ -1602,14 +1602,8 @@ config NETDEV_NOTIFIER_ERROR_INJECT
 	  If unsure, say N.
 
 config FUNCTION_ERROR_INJECTION
-	bool "Fault-injections of functions"
+	def_bool y
 	depends on HAVE_FUNCTION_ERROR_INJECTION && KPROBES
-	help
-	  Add fault injections into various functions that are annotated with
-	  ALLOW_ERROR_INJECTION() in the kernel. BPF may also modify the return
-	  value of theses functions. This is useful to test error paths of code.
-
-	  If unsure, say N
 
 config FAULT_INJECTION
 	bool "Fault-injection framework"
@@ -2020,17 +2014,6 @@ config TEST_SYSCTL
 
 	  If unsure, say N.
 
-config SYSCTL_KUNIT_TEST
-	bool "KUnit test for sysctl"
-	depends on KUNIT
-	help
-	  This builds the proc sysctl unit test, which runs on boot.
-	  Tests the API contract and implementation correctness of sysctl.
-	  For more information on KUnit and unit tests in general please refer
-	  to the KUnit documentation in Documentation/dev-tools/kunit/.
-
-	  If unsure, say N.
-
 config TEST_UDELAY
 	tristate "udelay test driver"
 	help
@@ -2183,9 +2166,9 @@ config ARCH_HAS_DEVMEM_IS_ALLOWED
 
 config STRICT_DEVMEM
 	bool "Filter access to /dev/mem"
-	depends on MMU && DEVMEM
-	depends on ARCH_HAS_DEVMEM_IS_ALLOWED
-	default y if PPC || X86 || ARM64
+	#depends on MMU && DEVMEM
+	#depends on ARCH_HAS_DEVMEM_IS_ALLOWED
+	#default y if PPC || X86 || ARM64
 	---help---
 	  If this option is disabled, you allow userspace (root) access to all
 	  of memory, including kernel and userspace memory. Accidental
@@ -2203,7 +2186,7 @@ config STRICT_DEVMEM
 
 config IO_STRICT_DEVMEM
 	bool "Filter I/O access to /dev/mem"
-	depends on STRICT_DEVMEM
+	#depends on STRICT_DEVMEM
 	---help---
 	  If this option is disabled, you allow userspace (root) access to all
 	  io-memory regardless of whether a driver is actively using that

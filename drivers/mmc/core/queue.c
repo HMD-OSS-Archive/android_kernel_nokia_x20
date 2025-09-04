@@ -195,15 +195,13 @@ static void mmc_queue_setup_discard(struct request_queue *q,
 	max_discard = mmc_calc_max_discard(card);
 	if (!max_discard)
 		return;
-    // ling.yi add log for QKS-1405 format some sdcard too slowly
-    pr_warn("YYY____ mmc_queue_setup_discard max_discard(%d) ",max_discard);
-    pr_warn("YYY____ mmc_queue_setup_discard erase_shift(%d) uint_max(%u) card_perase(%u)host->max_busy_timeout(%u)",card->erase_shift,UINT_MAX,card->pref_erase, card->host->max_busy_timeout);
+
 	blk_queue_flag_set(QUEUE_FLAG_DISCARD, q);
 	blk_queue_max_discard_sectors(q, max_discard);
 	q->limits.discard_granularity = card->pref_erase << 9;
 	/* granularity must not be greater than max. discard */
 	if (card->pref_erase > max_discard)
-		q->limits.discard_granularity = SECTOR_SIZE;
+		q->limits.discard_granularity = 0;
 	if (mmc_can_secure_erase_trim(card))
 		blk_queue_flag_set(QUEUE_FLAG_SECERASE, q);
 }
@@ -403,10 +401,8 @@ static void mmc_setup_queue(struct mmc_queue *mq, struct mmc_card *card)
 		     "merging was advertised but not possible");
 	blk_queue_max_segments(mq->queue, mmc_get_max_segments(host));
 
-	if (mmc_card_mmc(card) && card->ext_csd.data_sector_size) {
+	if (mmc_card_mmc(card))
 		block_size = card->ext_csd.data_sector_size;
-		WARN_ON(block_size != 512 && block_size != 4096);
-	}
 
 	blk_queue_logical_block_size(mq->queue, block_size);
 	/*

@@ -6,7 +6,7 @@
 
 ifeq ($(BUILD_THETHING_PROJECT),true)
 
-obj-y += goodix/
+obj-$(CONFIG_FINGERPRINT_GOODIX) += goodix/
 
 else
 #obj-$(CONFIG_CHIPONE_FINGERPRINT) += fpsensor/

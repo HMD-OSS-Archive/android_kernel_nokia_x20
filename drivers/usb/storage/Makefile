@@ -45,3 +45,7 @@ ums-realtek-y		:= realtek_cr.o
 ums-sddr09-y		:= sddr09.o
 ums-sddr55-y		:= sddr55.o
 ums-usbat-y		:= shuttle_usbat.o
+
+ifeq ($(BUILD_SMT),true)
+subdir-ccflags-y += -DDEBUG
+endif

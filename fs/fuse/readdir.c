@@ -207,7 +207,7 @@ retry:
 			dput(dentry);
 			goto retry;
 		}
-		if (fuse_is_bad(inode)) {
+		if (is_bad_inode(inode)) {
 			dput(dentry);
 			return -EIO;
 		}
@@ -238,16 +238,8 @@ retry:
 			dput(dentry);
 			dentry = alias;
 		}
-		if (IS_ERR(dentry)) {
-			if (!IS_ERR(inode)) {
-				struct fuse_inode *fi = get_fuse_inode(inode);
-
-				spin_lock(&fi->lock);
-				fi->nlookup--;
-				spin_unlock(&fi->lock);
-			}
+		if (IS_ERR(dentry))
 			return PTR_ERR(dentry);
-		}
 	}
 	if (fc->readdirplus_auto)
 		set_bit(FUSE_I_INIT_RDPLUS, &get_fuse_inode(inode)->state);
@@ -576,7 +568,7 @@ int fuse_readdir(struct file *file, struct dir_context *ctx)
 	struct inode *inode = file_inode(file);
 	int err;
 
-	if (fuse_is_bad(inode))
+	if (is_bad_inode(inode))
 		return -EIO;
 
 	mutex_lock(&ff->readdir.lock);

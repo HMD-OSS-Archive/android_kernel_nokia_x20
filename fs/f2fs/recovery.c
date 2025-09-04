@@ -447,7 +447,7 @@ static int check_index_in_prev_nodes(struct f2fs_sb_info *sbi,
 	struct dnode_of_data tdn = *dn;
 	nid_t ino, nid;
 	struct inode *inode;
-	unsigned int offset, ofs_in_node, max_addrs;
+	unsigned int offset;
 	block_t bidx;
 	int i;
 
@@ -473,24 +473,15 @@ static int check_index_in_prev_nodes(struct f2fs_sb_info *sbi,
 got_it:
 	/* Use the locked dnode page and inode */
 	nid = le32_to_cpu(sum.nid);
-	ofs_in_node = le16_to_cpu(sum.ofs_in_node);
-
-	max_addrs = ADDRS_PER_PAGE(dn->node_page, dn->inode);
-	if (ofs_in_node >= max_addrs) {
-		f2fs_err(sbi, "Inconsistent ofs_in_node:%u in summary, ino:%lu, nid:%u, max:%u",
-			ofs_in_node, dn->inode->i_ino, nid, max_addrs);
-		return -EFSCORRUPTED;
-	}
-
 	if (dn->inode->i_ino == nid) {
 		tdn.nid = nid;
 		if (!dn->inode_page_locked)
 			lock_page(dn->inode_page);
 		tdn.node_page = dn->inode_page;
-		tdn.ofs_in_node = ofs_in_node;
+		tdn.ofs_in_node = le16_to_cpu(sum.ofs_in_node);
 		goto truncate_out;
 	} else if (dn->nid == nid) {
-		tdn.ofs_in_node = ofs_in_node;
+		tdn.ofs_in_node = le16_to_cpu(sum.ofs_in_node);
 		goto truncate_out;
 	}
 
@@ -563,9 +554,7 @@ static int do_recover_data(struct f2fs_sb_info *sbi, struct inode *inode,
 
 	/* step 1: recover xattr */
 	if (IS_INODE(page)) {
-		err = f2fs_recover_inline_xattr(inode, page);
-		if (err)
-			goto out;
+		f2fs_recover_inline_xattr(inode, page);
 	} else if (f2fs_has_xattr_block(ofs_of_node(page))) {
 		err = f2fs_recover_xattr_data(inode, page);
 		if (!err)
@@ -574,12 +563,8 @@ static int do_recover_data(struct f2fs_sb_info *sbi, struct inode *inode,
 	}
 
 	/* step 2: recover inline data */
-	err = f2fs_recover_inline_data(inode, page);
-	if (err) {
-		if (err == 1)
-			err = 0;
+	if (f2fs_recover_inline_data(inode, page))
 		goto out;
-	}
 
 	/* step 3: recover data indices */
 	start = f2fs_start_bidx_of_node(ofs_of_node(page), inode);
@@ -677,14 +662,6 @@ retry_prev:
 							DEFAULT_IO_TIMEOUT);
 					goto retry_prev;
 				}
-				goto err;
-			}
-
-			if (f2fs_is_valid_blkaddr(sbi, dest,
-					DATA_GENERIC_ENHANCE_UPDATE)) {
-				f2fs_err(sbi, "Inconsistent dest blkaddr:%u, ino:%lu, ofs:%u",
-					dest, inode->i_ino, dn.ofs_in_node);
-				err = -EFSCORRUPTED;
 				goto err;
 			}
 

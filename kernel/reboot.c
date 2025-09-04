@@ -255,13 +255,7 @@ void kernel_restart(char *cmd)
 		pr_err("HDM: cmd = %s\n", cmd);
 		cmd = NULL;
 	}
-#else
-        /*not mp_version, enable edl*/
-	if (cmd && !strcmp(cmd, "edl-adb")) {
-		pr_err("switch edl-adb to edl");
-		cmd = "edl";
-	}
-#endif //HMD_MP_VERSION
+#endif
 /*req SCW-737,luohao,20210111,add,end*/
 
 	if (!cmd)
@@ -569,22 +563,22 @@ static int __init reboot_setup(char *str)
 			break;
 
 		case 's':
-			if (isdigit(*(str+1)))
-				reboot_cpu = simple_strtoul(str+1, NULL, 0);
-			else if (str[1] == 'm' && str[2] == 'p' &&
-							isdigit(*(str+3)))
-				reboot_cpu = simple_strtoul(str+3, NULL, 0);
-			else
+		{
+			int rc;
+
+			if (isdigit(*(str+1))) {
+				rc = kstrtoint(str+1, 0, &reboot_cpu);
+				if (rc)
+					return rc;
+			} else if (str[1] == 'm' && str[2] == 'p' &&
+				   isdigit(*(str+3))) {
+				rc = kstrtoint(str+3, 0, &reboot_cpu);
+				if (rc)
+					return rc;
+			} else
 				*mode = REBOOT_SOFT;
-			if (reboot_cpu >= num_possible_cpus()) {
-				pr_err("Ignoring the CPU number in reboot= option. "
-				       "CPU %d exceeds possible cpu number %d\n",
-				       reboot_cpu, num_possible_cpus());
-				reboot_cpu = 0;
 			break;
 		}
-			break;
-
 		case 'g':
 			*mode = REBOOT_GPIO;
 			break;

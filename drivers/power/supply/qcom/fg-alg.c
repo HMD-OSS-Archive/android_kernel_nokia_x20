@@ -1422,6 +1422,7 @@ int ttf_get_time_to_full(struct ttf *ttf, int *val)
 
 	return rc;
 }
+
 #ifdef CONFIG_HS_CHARGE_FG_FUNCTION
 static bool is_usb_available(struct ttf *ttf)
 {
@@ -1456,7 +1457,6 @@ static void ttf_work(struct work_struct *work)
 	int batt_temp = 0, rbatt = 0, vbus = 0,charge_type = 0;
 	union power_supply_propval prop = {0, };
 #endif /*CONFIG_HS_CHARGE_FG_FUNCTION*/
-
 	mutex_lock(&ttf->lock);
 	rc =  ttf->get_ttf_param(ttf->data, TTF_CHG_STATUS, &charge_status);
 	if (rc < 0) {
@@ -1505,13 +1505,12 @@ static void ttf_work(struct work_struct *work)
 					POWER_SUPPLY_PROP_VOLTAGE_NOW, &prop);
 		vbus = prop.intval;
 	}
-        
+
 	if (is_batt_available(ttf)){
 		power_supply_get_property(ttf->batt_psy,
 					POWER_SUPPLY_PROP_CHARGER_TYPE, &prop);
 		charge_type = prop.intval;
 	}
-        
 
 	rc = ttf->get_ttf_param(ttf->data, TTF_MSOC, &msoc);
 	if (rc < 0) {

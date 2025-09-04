@@ -330,11 +330,6 @@ static int dwc3_lsp_show(struct seq_file *s, void *unused)
 	unsigned int		current_mode;
 	unsigned long		flags;
 	u32			reg;
-	int			ret;
-
-	ret = pm_runtime_resume_and_get(dwc->dev);
-	if (ret < 0)
-		return ret;
 
 	if (atomic_read(&dwc->in_lpm)) {
 		seq_puts(s, "USB device is powered off\n");
@@ -357,8 +352,6 @@ static int dwc3_lsp_show(struct seq_file *s, void *unused)
 		break;
 	}
 	spin_unlock_irqrestore(&dwc->lock, flags);
-
-	pm_runtime_put_sync(dwc->dev);
 
 	return 0;
 }
@@ -431,11 +424,6 @@ static int dwc3_mode_show(struct seq_file *s, void *unused)
 	struct dwc3		*dwc = s->private;
 	unsigned long		flags;
 	u32			reg;
-	int			ret;
-
-	ret = pm_runtime_resume_and_get(dwc->dev);
-	if (ret < 0)
-		return ret;
 
 	if (atomic_read(&dwc->in_lpm)) {
 		seq_puts(s, "USB device is powered off\n");
@@ -459,8 +447,6 @@ static int dwc3_mode_show(struct seq_file *s, void *unused)
 	default:
 		seq_printf(s, "UNKNOWN %08x\n", DWC3_GCTL_PRTCAP(reg));
 	}
-
-	pm_runtime_put_sync(dwc->dev);
 
 	return 0;
 }
@@ -513,11 +499,6 @@ static int dwc3_testmode_show(struct seq_file *s, void *unused)
 	struct dwc3		*dwc = s->private;
 	unsigned long		flags;
 	u32			reg;
-	int			ret;
-
-	ret = pm_runtime_resume_and_get(dwc->dev);
-	if (ret < 0)
-		return ret;
 
 	if (atomic_read(&dwc->in_lpm)) {
 		seq_puts(s, "USB device is powered off\n");
@@ -553,8 +534,6 @@ static int dwc3_testmode_show(struct seq_file *s, void *unused)
 		seq_printf(s, "UNKNOWN %d\n", reg);
 	}
 
-	pm_runtime_put_sync(dwc->dev);
-
 	return 0;
 }
 
@@ -570,8 +549,7 @@ static ssize_t dwc3_testmode_write(struct file *file,
 	struct dwc3		*dwc = s->private;
 	unsigned long		flags;
 	u32			testmode = 0;
-	char			buf[32];
-	int			ret;
+	char			buf[32] = {};
 
 	if (atomic_read(&dwc->in_lpm)) {
 		seq_puts(s, "USB device is powered off\n");
@@ -594,15 +572,9 @@ static ssize_t dwc3_testmode_write(struct file *file,
 	else
 		testmode = 0;
 
-	ret = pm_runtime_resume_and_get(dwc->dev);
-	if (ret < 0)
-		return ret;
-
 	spin_lock_irqsave(&dwc->lock, flags);
 	dwc3_gadget_set_test_mode(dwc, testmode);
 	spin_unlock_irqrestore(&dwc->lock, flags);
-
-	pm_runtime_put_sync(dwc->dev);
 
 	return count;
 }
@@ -622,11 +594,6 @@ static int dwc3_link_state_show(struct seq_file *s, void *unused)
 	enum dwc3_link_state	state;
 	u32			reg;
 	u8			speed;
-	int			ret;
-
-	ret = pm_runtime_resume_and_get(dwc->dev);
-	if (ret < 0)
-		return ret;
 
 	if (atomic_read(&dwc->in_lpm)) {
 		seq_puts(s, "USB device is powered off\n");
@@ -638,7 +605,6 @@ static int dwc3_link_state_show(struct seq_file *s, void *unused)
 	if (DWC3_GSTS_CURMOD(reg) != DWC3_GSTS_CURMOD_DEVICE) {
 		seq_puts(s, "Not available\n");
 		spin_unlock_irqrestore(&dwc->lock, flags);
-		pm_runtime_put_sync(dwc->dev);
 		return 0;
 	}
 
@@ -650,8 +616,6 @@ static int dwc3_link_state_show(struct seq_file *s, void *unused)
 		   dwc3_gadget_link_string(state) :
 		   dwc3_gadget_hs_link_string(state));
 	spin_unlock_irqrestore(&dwc->lock, flags);
-
-	pm_runtime_put_sync(dwc->dev);
 
 	return 0;
 }
@@ -671,7 +635,6 @@ static ssize_t dwc3_link_state_write(struct file *file,
 	char			buf[32] = {};
 	u32			reg;
 	u8			speed;
-	int			ret;
 
 	if (atomic_read(&dwc->in_lpm)) {
 		seq_puts(s, "USB device is powered off\n");
@@ -696,15 +659,10 @@ static ssize_t dwc3_link_state_write(struct file *file,
 	else
 		return -EINVAL;
 
-	ret = pm_runtime_resume_and_get(dwc->dev);
-	if (ret < 0)
-		return ret;
-
 	spin_lock_irqsave(&dwc->lock, flags);
 	reg = dwc3_readl(dwc->regs, DWC3_GSTS);
 	if (DWC3_GSTS_CURMOD(reg) != DWC3_GSTS_CURMOD_DEVICE) {
 		spin_unlock_irqrestore(&dwc->lock, flags);
-		pm_runtime_put_sync(dwc->dev);
 		return -EINVAL;
 	}
 
@@ -714,14 +672,11 @@ static ssize_t dwc3_link_state_write(struct file *file,
 	if (speed < DWC3_DSTS_SUPERSPEED &&
 	    state != DWC3_LINK_STATE_RECOV) {
 		spin_unlock_irqrestore(&dwc->lock, flags);
-		pm_runtime_put_sync(dwc->dev);
 		return -EINVAL;
 	}
 
 	dwc3_gadget_set_link_state(dwc, state);
 	spin_unlock_irqrestore(&dwc->lock, flags);
-
-	pm_runtime_put_sync(dwc->dev);
 
 	return count;
 }
@@ -730,49 +685,6 @@ static const struct file_operations dwc3_link_state_fops = {
 	.open			= dwc3_link_state_open,
 	.write			= dwc3_link_state_write,
 	.read			= seq_read,
-	.llseek			= seq_lseek,
-	.release		= single_release,
-};
-
-static int dwc3_cp_toggle_open(struct inode *inode, struct file *file)
-{
-	int (*show)(struct seq_file *, void *) = inode->i_private;
-
-	return single_open(file, show, inode->i_private);
-}
-
-static ssize_t dwc3_cp_toggle_write(struct file *file,
-		const char __user *ubuf, size_t count, loff_t *ppos)
-{
-	struct seq_file		*s = file->private_data;
-	struct dwc3		*dwc = s->private;
-	u32			reg;
-
-	if (atomic_read(&dwc->in_lpm)) {
-		pr_err("%s: USB device is powered off\n", __func__);
-		return 0;
-	}
-
-	if (dwc3_gadget_get_link_state(dwc) != DWC3_LINK_STATE_CMPLY) {
-		pr_err("%s: USB Device is not in compliance mode\n", __func__);
-		return -EINVAL;
-	}
-
-	reg = dwc3_readl(dwc->regs, DWC3_GUSB3PIPECTL(0));
-	reg |= DWC3_GUSB3PIPECTL_HSTPRTCMPL;
-	dwc3_writel(dwc->regs, DWC3_GUSB3PIPECTL(0), reg);
-	msleep(200);
-	reg &= ~DWC3_GUSB3PIPECTL_HSTPRTCMPL;
-	dwc3_writel(dwc->regs, DWC3_GUSB3PIPECTL(0), reg);
-	msleep(200);
-
-	return count;
-}
-
-static const struct file_operations dwc3_cp_toggle_fops = {
-	.write			= dwc3_cp_toggle_write,
-	.open			= dwc3_cp_toggle_open,
-	.read			= NULL,
 	.llseek			= seq_lseek,
 	.release		= single_release,
 };
@@ -788,11 +700,6 @@ static int dwc3_tx_fifo_size_show(struct seq_file *s, void *unused)
 	struct dwc3		*dwc = dep->dwc;
 	unsigned long		flags;
 	u32			val;
-	int			ret;
-
-	ret = pm_runtime_resume_and_get(dwc->dev);
-	if (ret < 0)
-		return ret;
 
 	if (atomic_read(&dwc->in_lpm)) {
 		seq_puts(s, "USB device is powered off\n");
@@ -808,8 +715,6 @@ static int dwc3_tx_fifo_size_show(struct seq_file *s, void *unused)
 	seq_printf(s, "%u\n", val);
 	spin_unlock_irqrestore(&dwc->lock, flags);
 
-	pm_runtime_put_sync(dwc->dev);
-
 	return 0;
 }
 
@@ -819,11 +724,6 @@ static int dwc3_rx_fifo_size_show(struct seq_file *s, void *unused)
 	struct dwc3		*dwc = dep->dwc;
 	unsigned long		flags;
 	u32			val;
-	int			ret;
-
-	ret = pm_runtime_resume_and_get(dwc->dev);
-	if (ret < 0)
-		return ret;
 
 	if (atomic_read(&dwc->in_lpm)) {
 		seq_puts(s, "USB device is powered off\n");
@@ -839,8 +739,6 @@ static int dwc3_rx_fifo_size_show(struct seq_file *s, void *unused)
 	seq_printf(s, "%u\n", val);
 	spin_unlock_irqrestore(&dwc->lock, flags);
 
-	pm_runtime_put_sync(dwc->dev);
-
 	return 0;
 }
 
@@ -850,18 +748,11 @@ static int dwc3_tx_request_queue_show(struct seq_file *s, void *unused)
 	struct dwc3		*dwc = dep->dwc;
 	unsigned long		flags;
 	u32			val;
-	int			ret;
-
-	ret = pm_runtime_resume_and_get(dwc->dev);
-	if (ret < 0)
-		return ret;
 
 	spin_lock_irqsave(&dwc->lock, flags);
 	val = dwc3_core_fifo_space(dep, DWC3_TXREQQ);
 	seq_printf(s, "%u\n", val);
 	spin_unlock_irqrestore(&dwc->lock, flags);
-
-	pm_runtime_put_sync(dwc->dev);
 
 	return 0;
 }
@@ -872,11 +763,6 @@ static int dwc3_rx_request_queue_show(struct seq_file *s, void *unused)
 	struct dwc3		*dwc = dep->dwc;
 	unsigned long		flags;
 	u32			val;
-	int			ret;
-
-	ret = pm_runtime_resume_and_get(dwc->dev);
-	if (ret < 0)
-		return ret;
 
 	if (atomic_read(&dwc->in_lpm)) {
 		seq_puts(s, "USB device is powered off\n");
@@ -888,8 +774,6 @@ static int dwc3_rx_request_queue_show(struct seq_file *s, void *unused)
 	seq_printf(s, "%u\n", val);
 	spin_unlock_irqrestore(&dwc->lock, flags);
 
-	pm_runtime_put_sync(dwc->dev);
-
 	return 0;
 }
 
@@ -899,11 +783,6 @@ static int dwc3_rx_info_queue_show(struct seq_file *s, void *unused)
 	struct dwc3		*dwc = dep->dwc;
 	unsigned long		flags;
 	u32			val;
-	int			ret;
-
-	ret = pm_runtime_resume_and_get(dwc->dev);
-	if (ret < 0)
-		return ret;
 
 	if (atomic_read(&dwc->in_lpm)) {
 		seq_puts(s, "USB device is powered off\n");
@@ -915,8 +794,6 @@ static int dwc3_rx_info_queue_show(struct seq_file *s, void *unused)
 	seq_printf(s, "%u\n", val);
 	spin_unlock_irqrestore(&dwc->lock, flags);
 
-	pm_runtime_put_sync(dwc->dev);
-
 	return 0;
 }
 
@@ -926,11 +803,6 @@ static int dwc3_descriptor_fetch_queue_show(struct seq_file *s, void *unused)
 	struct dwc3		*dwc = dep->dwc;
 	unsigned long		flags;
 	u32			val;
-	int			ret;
-
-	ret = pm_runtime_resume_and_get(dwc->dev);
-	if (ret < 0)
-		return ret;
 
 	if (atomic_read(&dwc->in_lpm)) {
 		seq_puts(s, "USB device is powered off\n");
@@ -942,8 +814,6 @@ static int dwc3_descriptor_fetch_queue_show(struct seq_file *s, void *unused)
 	seq_printf(s, "%u\n", val);
 	spin_unlock_irqrestore(&dwc->lock, flags);
 
-	pm_runtime_put_sync(dwc->dev);
-
 	return 0;
 }
 
@@ -953,11 +823,6 @@ static int dwc3_event_queue_show(struct seq_file *s, void *unused)
 	struct dwc3		*dwc = dep->dwc;
 	unsigned long		flags;
 	u32			val;
-	int			ret;
-
-	ret = pm_runtime_resume_and_get(dwc->dev);
-	if (ret < 0)
-		return ret;
 
 	if (atomic_read(&dwc->in_lpm)) {
 		seq_puts(s, "USB device is powered off\n");
@@ -968,8 +833,6 @@ static int dwc3_event_queue_show(struct seq_file *s, void *unused)
 	val = dwc3_core_fifo_space(dep, DWC3_EVENTQ);
 	seq_printf(s, "%u\n", val);
 	spin_unlock_irqrestore(&dwc->lock, flags);
-
-	pm_runtime_put_sync(dwc->dev);
 
 	return 0;
 }
@@ -1016,11 +879,6 @@ static int dwc3_trb_ring_show(struct seq_file *s, void *unused)
 	struct dwc3		*dwc = dep->dwc;
 	unsigned long		flags;
 	int			i;
-	int			ret;
-
-	ret = pm_runtime_resume_and_get(dwc->dev);
-	if (ret < 0)
-		return ret;
 
 	spin_lock_irqsave(&dwc->lock, flags);
 	if (dep->number <= 1) {
@@ -1050,8 +908,6 @@ static int dwc3_trb_ring_show(struct seq_file *s, void *unused)
 out:
 	spin_unlock_irqrestore(&dwc->lock, flags);
 
-	pm_runtime_put_sync(dwc->dev);
-
 	return 0;
 }
 
@@ -1064,11 +920,6 @@ static int dwc3_ep_info_register_show(struct seq_file *s, void *unused)
 	u32			lower_32_bits;
 	u32			upper_32_bits;
 	u32			reg;
-	int			ret;
-
-	ret = pm_runtime_resume_and_get(dwc->dev);
-	if (ret < 0)
-		return ret;
 
 	if (atomic_read(&dwc->in_lpm)) {
 		seq_puts(s, "USB device is powered off\n");
@@ -1085,8 +936,6 @@ static int dwc3_ep_info_register_show(struct seq_file *s, void *unused)
 	ep_info = ((u64)upper_32_bits << 32) | lower_32_bits;
 	seq_printf(s, "0x%016llx\n", ep_info);
 	spin_unlock_irqrestore(&dwc->lock, flags);
-
-	pm_runtime_put_sync(dwc->dev);
 
 	return 0;
 }
@@ -1128,19 +977,33 @@ static void dwc3_debugfs_create_endpoint_files(struct dwc3_ep *dep,
 	}
 }
 
-void dwc3_debugfs_create_endpoint_dir(struct dwc3_ep *dep)
+static void dwc3_debugfs_create_endpoint_dir(struct dwc3_ep *dep,
+		struct dentry *parent)
 {
 	struct dentry		*dir;
-	struct dentry		*root;
 
-	root = debugfs_lookup(dev_name(dep->dwc->dev), usb_debug_root);
-	dir = debugfs_create_dir(dep->name, root);
+	dir = debugfs_create_dir(dep->name, parent);
 	if (!dir) {
 		pr_err("%s: failed to create dir %s\n", __func__, dep->name);
 		return;
 	}
 
 	dwc3_debugfs_create_endpoint_files(dep, dir);
+}
+
+static void dwc3_debugfs_create_endpoint_dirs(struct dwc3 *dwc,
+		struct dentry *parent)
+{
+	int			i;
+
+	for (i = 0; i < dwc->num_eps; i++) {
+		struct dwc3_ep	*dep = dwc->eps[i];
+
+		if (!dep)
+			continue;
+
+		dwc3_debugfs_create_endpoint_dir(dep, parent);
+	}
 }
 
 static ssize_t dwc3_gadget_int_events_store(struct file *file,
@@ -1321,51 +1184,6 @@ static const struct file_operations dwc3_gadget_int_events_fops = {
 	.release	= single_release,
 };
 
-static ssize_t dwc3_gadget_l1_store(struct file *file,
-	const char __user *ubuf, size_t count, loff_t *ppos)
-{
-	struct seq_file *s = file->private_data;
-	struct dwc3	*dwc = s->private;
-	bool		 enable_l1;
-	int		 ret;
-
-	ret = kstrtobool_from_user(ubuf, count, &enable_l1);
-	if (ret < 0) {
-		dev_err(dwc->dev, "%s: can't get entered value: %d\n",
-							__func__, ret);
-		return ret;
-	}
-
-	dwc->gadget.lpm_capable = enable_l1;
-	dwc->usb2_gadget_lpm_disable = !enable_l1;
-
-	pr_info("dwc3 gadget lpm : %s. Perform a plugout/plugin\n",
-				enable_l1 ? "enabled" : "disabled");
-
-	return count;
-}
-
-static int dwc3_gadget_l1_status_show(struct seq_file *s, void *unused)
-{
-	struct dwc3 *dwc = s->private;
-
-	seq_printf(s, "%d\n", dwc->gadget.lpm_capable);
-	return 0;
-}
-
-static int dwc3_gadget_l1_open(struct inode *inode, struct file *f)
-{
-	return single_open(f, dwc3_gadget_l1_status_show, inode->i_private);
-}
-
-static const struct file_operations dwc3_l1_enable_ops = {
-	.open		= dwc3_gadget_l1_open,
-	.write		= dwc3_gadget_l1_store,
-	.read		= seq_read,
-	.llseek		= seq_lseek,
-	.release	= single_release,
-};
-
 void dwc3_debugfs_init(struct dwc3 *dwc)
 {
 	struct dentry		*root;
@@ -1380,7 +1198,6 @@ void dwc3_debugfs_init(struct dwc3 *dwc)
 	dwc->regset->regs = dwc3_regs;
 	dwc->regset->nregs = ARRAY_SIZE(dwc3_regs);
 	dwc->regset->base = dwc->regs - DWC3_GLOBALS_REGS_START;
-	dwc->regset->dev = dwc->dev;
 
 	root = debugfs_create_dir(dev_name(dwc->dev), NULL);
 	if (!root) {
@@ -1389,12 +1206,12 @@ void dwc3_debugfs_init(struct dwc3 *dwc)
 		return;
 	}
 
+	dwc->root = root;
+
 	debugfs_create_file("regdump", 0444, root, dwc, &dwc3_regdump_fops);
 
 	debugfs_create_file("lsp_dump", S_IRUGO | S_IWUSR, root, dwc,
 			    &dwc3_lsp_fops);
-	debugfs_create_file("enable_l1_suspend", 0644, root, dwc,
-			    &dwc3_l1_enable_ops);
 
 	if (IS_ENABLED(CONFIG_USB_DWC3_DUAL_ROLE)) {
 		debugfs_create_file("mode", S_IRUGO | S_IWUSR, root, dwc,
@@ -1407,8 +1224,7 @@ void dwc3_debugfs_init(struct dwc3 *dwc)
 				    &dwc3_testmode_fops);
 		debugfs_create_file("link_state", S_IRUGO | S_IWUSR, root, dwc,
 				    &dwc3_link_state_fops);
-		debugfs_create_file("cp_toggle", 0200, root, dwc,
-				    &dwc3_cp_toggle_fops);
+		dwc3_debugfs_create_endpoint_dirs(dwc, root);
 
 		file = debugfs_create_file("int_events", 0644, root, dwc,
 				&dwc3_gadget_int_events_fops);
@@ -1419,6 +1235,6 @@ void dwc3_debugfs_init(struct dwc3 *dwc)
 
 void dwc3_debugfs_exit(struct dwc3 *dwc)
 {
-	debugfs_remove(debugfs_lookup(dev_name(dwc->dev), usb_debug_root));
+	debugfs_remove_recursive(dwc->root);
 	kfree(dwc->regset);
 }

@@ -2346,10 +2346,7 @@ static int nl80211_send_wiphy(struct cfg80211_registered_device *rdev,
 		 * case we'll continue with more data in the next round,
 		 * but break unconditionally so unsplit data stops here.
 		 */
-		if (state->split)
-			state->split_start++;
-		else
-			state->split_start = 0;
+		state->split_start++;
 		break;
 	case 9:
 		if (rdev->wiphy.extended_capabilities &&
@@ -3365,7 +3362,6 @@ static int nl80211_send_iface(struct sk_buff *msg, u32 portid, u32 seq, int flag
 	wdev_lock(wdev);
 	switch (wdev->iftype) {
 	case NL80211_IFTYPE_AP:
-	case NL80211_IFTYPE_P2P_GO:
 		if (wdev->ssid_len &&
 		    nla_put(msg, NL80211_ATTR_SSID, wdev->ssid_len, wdev->ssid))
 			goto nla_put_failure_locked;
@@ -3606,7 +3602,7 @@ static int nl80211_valid_4addr(struct cfg80211_registered_device *rdev,
 			       enum nl80211_iftype iftype)
 {
 	if (!use_4addr) {
-		if (netdev && netif_is_bridge_port(netdev))
+		if (netdev && (netdev->priv_flags & IFF_BRIDGE_PORT))
 			return -EBUSY;
 		return 0;
 	}
@@ -3780,8 +3776,7 @@ static int nl80211_new_interface(struct sk_buff *skb, struct genl_info *info)
 		 * P2P Device and NAN do not have a netdev, so don't go
 		 * through the netdev notifier and must be added here
 		 */
-		cfg80211_init_wdev(wdev);
-		cfg80211_register_wdev(rdev, wdev);
+		cfg80211_init_wdev(rdev, wdev);
 		break;
 	default:
 		break;
@@ -4159,10 +4154,6 @@ static int nl80211_del_key(struct sk_buff *skb, struct genl_info *info)
 	    key.type != NL80211_KEYTYPE_GROUP)
 		return -EINVAL;
 
-	if (!cfg80211_valid_key_idx(rdev, key.idx,
-				    key.type == NL80211_KEYTYPE_PAIRWISE))
-		return -EINVAL;
-
 	if (!rdev->ops->del_key)
 		return -EOPNOTSUPP;
 
@@ -4408,8 +4399,7 @@ static const struct nla_policy nl80211_txattr_policy[NL80211_TXRATE_MAX + 1] = {
 };
 
 static int nl80211_parse_tx_bitrate_mask(struct genl_info *info,
-					 struct cfg80211_bitrate_mask *mask,
-					 bool default_all_enabled)
+					 struct cfg80211_bitrate_mask *mask)
 {
 	struct nlattr *tb[NL80211_TXRATE_MAX + 1];
 	struct cfg80211_registered_device *rdev = info->user_ptr[0];
@@ -4421,9 +4411,6 @@ static int nl80211_parse_tx_bitrate_mask(struct genl_info *info,
 	memset(mask, 0, sizeof(*mask));
 	/* Default to all rates enabled */
 	for (i = 0; i < NUM_NL80211_BANDS; i++) {
-		if (!default_all_enabled)
-			break;
-
 		sband = rdev->wiphy.bands[i];
 
 		if (!sband)
@@ -4670,14 +4657,16 @@ static int nl80211_parse_he_obss_pd(struct nlattr *attrs,
 	if (err)
 		return err;
 
-	if (tb[NL80211_HE_OBSS_PD_ATTR_MIN_OFFSET])
-		he_obss_pd->min_offset =
-			nla_get_u8(tb[NL80211_HE_OBSS_PD_ATTR_MIN_OFFSET]);
-	if (tb[NL80211_HE_OBSS_PD_ATTR_MAX_OFFSET])
-		he_obss_pd->max_offset =
-			nla_get_u8(tb[NL80211_HE_OBSS_PD_ATTR_MAX_OFFSET]);
+	if (!tb[NL80211_HE_OBSS_PD_ATTR_MIN_OFFSET] ||
+	    !tb[NL80211_HE_OBSS_PD_ATTR_MAX_OFFSET])
+		return -EINVAL;
 
-	if (he_obss_pd->min_offset > he_obss_pd->max_offset)
+	he_obss_pd->min_offset =
+		nla_get_u32(tb[NL80211_HE_OBSS_PD_ATTR_MIN_OFFSET]);
+	he_obss_pd->max_offset =
+		nla_get_u32(tb[NL80211_HE_OBSS_PD_ATTR_MAX_OFFSET]);
+
+	if (he_obss_pd->min_offset >= he_obss_pd->max_offset)
 		return -EINVAL;
 
 	he_obss_pd->enable = true;
@@ -4947,7 +4936,7 @@ static int nl80211_start_ap(struct sk_buff *skb, struct genl_info *info)
 		return -EINVAL;
 
 	if (info->attrs[NL80211_ATTR_TX_RATES]) {
-		err = nl80211_parse_tx_bitrate_mask(info, &params.beacon_rate, false);
+		err = nl80211_parse_tx_bitrate_mask(info, &params.beacon_rate);
 		if (err)
 			return err;
 
@@ -7132,7 +7121,7 @@ static int nl80211_update_mesh_config(struct sk_buff *skb,
 	struct cfg80211_registered_device *rdev = info->user_ptr[0];
 	struct net_device *dev = info->user_ptr[1];
 	struct wireless_dev *wdev = dev->ieee80211_ptr;
-	struct mesh_config cfg = {};
+	struct mesh_config cfg;
 	u32 mask;
 	int err;
 
@@ -10729,7 +10718,7 @@ static int nl80211_set_tx_bitrate_mask(struct sk_buff *skb,
 	if (!rdev->ops->set_bitrate_mask)
 		return -EOPNOTSUPP;
 
-	err = nl80211_parse_tx_bitrate_mask(info, &mask, true);
+	err = nl80211_parse_tx_bitrate_mask(info, &mask);
 	if (err)
 		return err;
 
@@ -11325,7 +11314,7 @@ static int nl80211_join_mesh(struct sk_buff *skb, struct genl_info *info)
 	}
 
 	if (info->attrs[NL80211_ATTR_TX_RATES]) {
-		err = nl80211_parse_tx_bitrate_mask(info, &setup.beacon_rate, false);
+		err = nl80211_parse_tx_bitrate_mask(info, &setup.beacon_rate);
 		if (err)
 			return err;
 
@@ -12262,7 +12251,7 @@ static int nl80211_set_rekey_data(struct sk_buff *skb, struct genl_info *info)
 	struct net_device *dev = info->user_ptr[1];
 	struct wireless_dev *wdev = dev->ieee80211_ptr;
 	struct nlattr *tb[NUM_NL80211_REKEY_DATA];
-	struct cfg80211_gtk_rekey_data rekey_data = {};
+	struct cfg80211_gtk_rekey_data rekey_data;
 	int err;
 
 	if (!info->attrs[NL80211_ATTR_REKEY_DATA])
@@ -12548,9 +12537,6 @@ static int handle_nan_filter(struct nlattr *attr_filter,
 	i = 0;
 	nla_for_each_nested(attr, attr_filter, rem) {
 		filter[i].filter = nla_memdup(attr, GFP_KERNEL);
-		if (!filter[i].filter)
-			goto err;
-
 		filter[i].len = nla_len(attr);
 		i++;
 	}
@@ -12563,15 +12549,6 @@ static int handle_nan_filter(struct nlattr *attr_filter,
 	}
 
 	return 0;
-
-err:
-	i = 0;
-	nla_for_each_nested(attr, attr_filter, rem) {
-		kfree(filter[i].filter);
-		i++;
-	}
-	kfree(filter);
-	return -ENOMEM;
 }
 
 static int nl80211_nan_add_func(struct sk_buff *skb,
@@ -16654,8 +16631,7 @@ void cfg80211_ch_switch_notify(struct net_device *dev,
 	wdev->chandef = *chandef;
 	wdev->preset_chandef = *chandef;
 
-	if ((wdev->iftype == NL80211_IFTYPE_STATION ||
-	     wdev->iftype == NL80211_IFTYPE_P2P_CLIENT) &&
+	if (wdev->iftype == NL80211_IFTYPE_STATION &&
 	    !WARN_ON(!wdev->current_bss))
 		cfg80211_update_assoc_bss_entry(wdev, chandef->chan);
 

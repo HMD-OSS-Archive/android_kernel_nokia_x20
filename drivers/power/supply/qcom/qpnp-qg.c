@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
- * Copyright (c) 2018-2021 The Linux Foundation. All rights reserved.
+ * Copyright (c) 2018-2020 The Linux Foundation. All rights reserved.
  */
 
 #define pr_fmt(fmt)	"QG-K: %s: " fmt, __func__
@@ -54,9 +54,7 @@ static const char *qg_get_battery_type(struct qpnp_qg *chip);
 static int qg_process_rt_fifo(struct qpnp_qg *chip);
 static int qg_load_battery_profile(struct qpnp_qg *chip);
 
-static int qg_debug_mask = QG_DEBUG_IRQ | QG_DEBUG_STATUS 
-							| QG_DEBUG_SOC | QG_DEBUG_DEVICE |
-							QG_DEBUG_PON;
+static int qg_debug_mask = 0;
 static int qg_esr_mod_count = 30;
 static ssize_t esr_mod_count_show(struct device *dev, struct device_attribute
 				     *attr, char *buf)
@@ -1951,13 +1949,11 @@ static int qg_get_ttf_param(void *data, enum ttf_param param, int *val)
 	case TTF_CHG_DONE:
 		*val = chip->charge_done;
 		break;
-//merged by changxue.fang for thething,start
 #ifdef CONFIG_HS_CHARGE_FG_FUNCTION
 	case TTF_TEMP:
 		qg_get_battery_temp(chip, val);
 		break;
 #endif /*CONFIG_HS_CHARGE_FG_FUNCTION*/
-//merged by changxue.fang for thething,end
 	default:
 		pr_err("Unsupported property %d\n", param);
 		rc = -EINVAL;
@@ -2146,9 +2142,6 @@ static int qg_iio_write_raw(struct iio_dev *indio_dev,
 		if (chip->sp)
 			soh_profile_update(chip->sp, chip->soh);
 		break;
-	case PSY_IIO_CLEAR_SOH:
-		chip->first_profile_load = val1;
-		break;
 	case PSY_IIO_ESR_ACTUAL:
 		chip->esr_actual = val1;
 		break;
@@ -2162,13 +2155,13 @@ static int qg_iio_write_raw(struct iio_dev *indio_dev,
 		rc = qg_setprop_batt_age_level(chip, val1);
 		break;
 	default:
-		pr_debug("Unsupported QG IIO chan %d\n", chan->channel);
+		pr_err("Unsupported QG IIO chan %d\n", chan->channel);
 		rc = -EINVAL;
 		break;
 	}
 
 	if (rc < 0)
-		pr_err_ratelimited("Couldn't write IIO channel %d, rc = %d\n",
+		pr_err("Couldn't write IIO channel %d, rc = %d\n",
 			chan->channel, rc);
 
 	return rc;
@@ -2274,9 +2267,6 @@ static int qg_iio_read_raw(struct iio_dev *indio_dev,
 	case PSY_IIO_SOH:
 		*val1 = chip->soh;
 		break;
-	case PSY_IIO_CLEAR_SOH:
-		*val1 = chip->first_profile_load;
-		break;
 	case PSY_IIO_CC_SOC:
 		rc = qg_get_cc_soc(chip, val1);
 		break;
@@ -2305,13 +2295,13 @@ static int qg_iio_read_raw(struct iio_dev *indio_dev,
 		*val1 = chip->qg_mode;
 		break;
 	default:
-		pr_debug("Unsupported QG IIO chan %d\n", chan->channel);
+		pr_debug("Unsupported property %d\n", chan->channel);
 		rc = -EINVAL;
 		break;
 	}
 
 	if (rc < 0) {
-		pr_err_ratelimited("Couldn't read IIO channel %d, rc = %d\n",
+		pr_err("Couldn't read IIO channel %d, rc = %d\n",
 			chan->channel, rc);
 		return rc;
 	}
@@ -3326,10 +3316,6 @@ static int qg_determine_pon_soc(struct qpnp_qg *chip)
 	if (!shutdown[SDAM_VALID])
 		goto use_pon_ocv;
 
-#if defined(TARGET_PRODUCT_PUNISHER)
-	if (shutdown[SDAM_SOC] < pon_soc)
-		goto use_shutdown_soc;
-#endif
 	if (!is_between(0, chip->dt.ignore_shutdown_soc_secs,
 			(rtc_sec - shutdown[SDAM_TIME_SEC])))
 		goto use_pon_ocv;
@@ -3344,9 +3330,6 @@ static int qg_determine_pon_soc(struct qpnp_qg *chip)
 			abs(pon_soc - shutdown[SDAM_SOC])))
 		goto use_pon_ocv;
 
-#if defined(TARGET_PRODUCT_PUNISHER)
-use_shutdown_soc:
-#endif
 	use_pon_ocv = false;
 	ocv_uv = shutdown[SDAM_OCV_UV];
 	soc = shutdown[SDAM_SOC];
@@ -3513,7 +3496,6 @@ static int qg_sanitize_sdam(struct qpnp_qg *chip)
 		rc = qg_sdam_write(SDAM_MAGIC, SDAM_MAGIC_NUMBER);
 		if (!rc)
 			qg_dbg(chip, QG_DEBUG_PON, "First boot. SDAM initilized\n");
-		chip->first_profile_load = true;
 	} else {
 		/* SDAM has invalid value */
 		rc = qg_sdam_clear();
@@ -3521,7 +3503,6 @@ static int qg_sanitize_sdam(struct qpnp_qg *chip)
 			pr_err("SDAM uninitialized, SDAM reset\n");
 			rc = qg_sdam_write(SDAM_MAGIC, SDAM_MAGIC_NUMBER);
 		}
-		chip->first_profile_load = true;
 	}
 
 	if (rc < 0)

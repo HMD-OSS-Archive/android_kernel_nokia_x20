@@ -352,19 +352,16 @@ void f2fs_drop_inmem_page(struct inode *inode, struct page *page)
 	struct f2fs_sb_info *sbi = F2FS_I_SB(inode);
 	struct list_head *head = &fi->inmem_pages;
 	struct inmem_pages *cur = NULL;
-	struct inmem_pages *tmp;
 
 	f2fs_bug_on(sbi, !IS_ATOMIC_WRITTEN_PAGE(page));
 
 	mutex_lock(&fi->inmem_lock);
-	list_for_each_entry(tmp, head, list) {
-		if (tmp->page == page) {
-			cur = tmp;
+	list_for_each_entry(cur, head, list) {
+		if (cur->page == page)
 			break;
-		}
 	}
 
-	f2fs_bug_on(sbi, !cur);
+	f2fs_bug_on(sbi, list_empty(head) || cur->page != page);
 	list_del(&cur->list);
 	mutex_unlock(&fi->inmem_lock);
 
@@ -1488,7 +1485,7 @@ retry:
 		if (i + 1 < dpolicy->granularity)
 			break;
 
-		if (i + 1 < DEFAULT_DISCARD_GRANULARITY && dpolicy->ordered)
+		if (i < DEFAULT_DISCARD_GRANULARITY && dpolicy->ordered)
 			return __issue_discard_cmd_orderly(sbi, dpolicy);
 
 		pend_list = &dcc->pend_list[i];
@@ -1736,8 +1733,7 @@ static int issue_discard_thread(void *data)
 			continue;
 		}
 
-		if (sbi->gc_mode == GC_URGENT ||
-			!f2fs_available_free_memory(sbi, DISCARD_CACHE))
+		if (sbi->gc_mode == GC_URGENT)
 			__init_discard_policy(sbi, &dpolicy, DPOLICY_FORCE, 1);
 
 		sb_start_intwrite(sbi->sb);
@@ -4375,10 +4371,6 @@ static int sanity_check_curseg(struct f2fs_sb_info *sbi)
 		struct curseg_info *curseg = CURSEG_I(sbi, i);
 		struct seg_entry *se = get_seg_entry(sbi, curseg->segno);
 		unsigned int blkofs = curseg->next_blkoff;
-
-		if (f2fs_sb_has_readonly(sbi) &&
-			i != CURSEG_HOT_DATA && i != CURSEG_HOT_NODE)
-			continue;
 
 		if (f2fs_test_bit(blkofs, se->cur_valid_map))
 			goto out;

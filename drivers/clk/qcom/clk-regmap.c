@@ -269,7 +269,6 @@ EXPORT_SYMBOL(clk_is_regmap_clk);
  */
 int devm_clk_register_regmap(struct device *dev, struct clk_regmap *rclk)
 {
-	const struct clk_ops *ops;
 	int ret;
 
 	rclk->dev = dev;
@@ -278,14 +277,6 @@ int devm_clk_register_regmap(struct device *dev, struct clk_regmap *rclk)
 		rclk->regmap = dev_get_regmap(dev, NULL);
 	else if (dev && dev->parent)
 		rclk->regmap = dev_get_regmap(dev->parent, NULL);
-
-	if (rclk->flags & QCOM_CLK_IS_CRITICAL) {
-		ops = rclk->hw.init->ops;
-		if (ops && ops->enable)
-			ops->enable(&rclk->hw);
-
-		return 0;
-	}
 
 	ret = devm_clk_hw_register(dev, &rclk->hw);
 	if (!ret)

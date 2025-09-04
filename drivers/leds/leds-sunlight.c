@@ -2,7 +2,7 @@
 /*
  * LEDs driver for Sunlight
  *
- * Copyright (C) 2020 HMD
+ * Copyright (C) 2020 wenchao <chao.wen@chino-e.com>
  *
  * Based on leds-ams-delta.c
  */
@@ -20,12 +20,9 @@
 
 struct mutex sunlight_lock;
 struct platform_device *pdev = NULL;
-struct  backlight_device *s_backlight = NULL;
-int sunlight_flag = 0;
-int sunlight_set_sde_backlight(struct backlight_device *bd)
-{
-    return 0;
-}
+extern struct  backlight_device *s_backlight;
+extern int sunlight_flag;
+extern int sunlight_set_sde_backlight(struct backlight_device *bd);
 static void sunlight_led_set(struct led_classdev *led_cdev,
 		enum led_brightness value)
 {
@@ -33,13 +30,12 @@ static void sunlight_led_set(struct led_classdev *led_cdev,
 	if(s_backlight){
 		if(value == 1){
 			sunlight_flag = 1;
-			sunlight_set_sde_backlight(s_backlight);
-		}else{
+			sunlight_set_sde_backlight(s_backlight);			
+		}else{	
 			sunlight_flag = 0;
-			sunlight_set_sde_backlight(s_backlight);
+			sunlight_set_sde_backlight(s_backlight);			
 		}
-	}
-	dev_err(&pdev->dev, "Dom,sunlight_led_set sunlight_flag = %d,value = %d\n",sunlight_flag,value);
+	}	
 	mutex_unlock(&sunlight_lock);
 }
 
@@ -58,7 +54,6 @@ static int sunlight_led_probe(struct platform_device *pdev)
 		dev_err(&pdev->dev, "can't register LED %s\n", sunlight_led.name);
   		mutex_destroy(&sunlight_lock);
 	}
-	dev_err(&pdev->dev, "Dom,register LED %s\n", sunlight_led.name);
 	return ret;
 }
 
@@ -97,7 +92,7 @@ static void __exit sunlight_led_exit(void)
 module_init(sunlight_led_init);
 module_exit(sunlight_led_exit);
 
-MODULE_AUTHOR("HMD");
-MODULE_DESCRIPTION("HMD sunlight led driver");
+MODULE_AUTHOR("wenchao <chao.wen@chino-e.com>");
+MODULE_DESCRIPTION("chino-e sunlight led driver");
 MODULE_LICENSE("GPL");
 

@@ -156,14 +156,11 @@ static int batadv_interface_set_mac_addr(struct net_device *dev, void *p)
 
 static int batadv_interface_change_mtu(struct net_device *dev, int new_mtu)
 {
-	struct batadv_priv *bat_priv = netdev_priv(dev);
-
 	/* check ranges */
 	if (new_mtu < 68 || new_mtu > batadv_hardif_min_mtu(dev))
 		return -EINVAL;
 
 	dev->mtu = new_mtu;
-	bat_priv->mtu_set_by_user = new_mtu;
 
 	return 0;
 }
@@ -203,7 +200,6 @@ static netdev_tx_t batadv_interface_tx(struct sk_buff *skb,
 	int gw_mode;
 	enum batadv_forw_mode forw_mode = BATADV_FORW_SINGLE;
 	struct batadv_orig_node *mcast_single_orig = NULL;
-	int mcast_is_routable = 0;
 	int network_offset = ETH_HLEN;
 	__be16 proto;
 
@@ -306,8 +302,7 @@ static netdev_tx_t batadv_interface_tx(struct sk_buff *skb,
 send:
 		if (do_bcast && !is_broadcast_ether_addr(ethhdr->h_dest)) {
 			forw_mode = batadv_mcast_forw_mode(bat_priv, skb,
-							   &mcast_single_orig,
-							   &mcast_is_routable);
+							   &mcast_single_orig);
 			if (forw_mode == BATADV_FORW_NONE)
 				goto dropped;
 
@@ -369,11 +364,11 @@ send:
 				goto dropped;
 			ret = batadv_send_skb_via_gw(bat_priv, skb, vid);
 		} else if (mcast_single_orig) {
-			ret = batadv_mcast_forw_send_orig(bat_priv, skb, vid,
-							  mcast_single_orig);
+			ret = batadv_send_skb_unicast(bat_priv, skb,
+						      BATADV_UNICAST, 0,
+						      mcast_single_orig, vid);
 		} else if (forw_mode == BATADV_FORW_SOME) {
-			ret = batadv_mcast_forw_send(bat_priv, skb, vid,
-						     mcast_is_routable);
+			ret = batadv_mcast_forw_send(bat_priv, skb, vid);
 		} else {
 			if (batadv_dat_snoop_outgoing_arp_request(bat_priv,
 								  skb))
@@ -430,10 +425,10 @@ void batadv_interface_rx(struct net_device *soft_iface,
 	struct vlan_ethhdr *vhdr;
 	struct ethhdr *ethhdr;
 	unsigned short vid;
-	int packet_type;
+	bool is_bcast;
 
 	batadv_bcast_packet = (struct batadv_bcast_packet *)skb->data;
-	packet_type = batadv_bcast_packet->packet_type;
+	is_bcast = (batadv_bcast_packet->packet_type == BATADV_BCAST);
 
 	skb_pull_rcsum(skb, hdr_size);
 	skb_reset_mac_header(skb);
@@ -476,7 +471,7 @@ void batadv_interface_rx(struct net_device *soft_iface,
 	/* Let the bridge loop avoidance check the packet. If will
 	 * not handle it, we can safely push it up.
 	 */
-	if (batadv_bla_rx(bat_priv, skb, vid, packet_type))
+	if (batadv_bla_rx(bat_priv, skb, vid, is_bcast))
 		goto out;
 
 	if (orig_node)

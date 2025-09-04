@@ -668,7 +668,7 @@ static int qedf_eh_abort(struct scsi_cmnd *sc_cmd)
 	rdata = fcport->rdata;
 	if (!rdata || !kref_get_unless_zero(&rdata->kref)) {
 		QEDF_ERR(&qedf->dbg_ctx, "stale rport, sc_cmd=%p\n", sc_cmd);
-		rc = SUCCESS;
+		rc = 1;
 		goto out;
 	}
 
@@ -1729,20 +1729,22 @@ static int qedf_vport_create(struct fc_vport *vport, bool disabled)
 		fcoe_wwn_to_str(vport->port_name, buf, sizeof(buf));
 		QEDF_WARN(&(base_qedf->dbg_ctx), "Failed to create vport, "
 			   "WWPN (0x%s) already exists.\n", buf);
-		return rc;
+		goto err1;
 	}
 
 	if (atomic_read(&base_qedf->link_state) != QEDF_LINK_UP) {
 		QEDF_WARN(&(base_qedf->dbg_ctx), "Cannot create vport "
 			   "because link is not up.\n");
-		return -EIO;
+		rc = -EIO;
+		goto err1;
 	}
 
 	vn_port = libfc_vport_create(vport, sizeof(struct qedf_ctx));
 	if (!vn_port) {
 		QEDF_WARN(&(base_qedf->dbg_ctx), "Could not create lport "
 			   "for vport.\n");
-		return -ENOMEM;
+		rc = -ENOMEM;
+		goto err1;
 	}
 
 	fcoe_wwn_to_str(vport->port_name, buf, sizeof(buf));
@@ -1766,7 +1768,7 @@ static int qedf_vport_create(struct fc_vport *vport, bool disabled)
 	if (rc) {
 		QEDF_ERR(&(base_qedf->dbg_ctx), "Could not allocate memory "
 		    "for lport stats.\n");
-		goto err;
+		goto err2;
 	}
 
 	fc_set_wwnn(vn_port, vport->node_name);
@@ -1784,7 +1786,7 @@ static int qedf_vport_create(struct fc_vport *vport, bool disabled)
 	if (rc) {
 		QEDF_WARN(&base_qedf->dbg_ctx,
 			  "Error adding Scsi_Host rc=0x%x.\n", rc);
-		goto err;
+		goto err2;
 	}
 
 	/* Set default dev_loss_tmo based on module parameter */
@@ -1825,10 +1827,9 @@ static int qedf_vport_create(struct fc_vport *vport, bool disabled)
 	vport_qedf->dbg_ctx.host_no = vn_port->host->host_no;
 	vport_qedf->dbg_ctx.pdev = base_qedf->pdev;
 
-	return 0;
-
-err:
+err2:
 	scsi_host_put(vn_port->host);
+err1:
 	return rc;
 }
 
@@ -1869,7 +1870,8 @@ static int qedf_vport_destroy(struct fc_vport *vport)
 	fc_lport_free_stats(vn_port);
 
 	/* Release Scsi_Host */
-	scsi_host_put(vn_port->host);
+	if (vn_port->host)
+		scsi_host_put(vn_port->host);
 
 out:
 	return 0;
@@ -2894,7 +2896,7 @@ static int qedf_alloc_global_queues(struct qedf_ctx *qedf)
 {
 	u32 *list;
 	int i;
-	int status;
+	int status = 0, rc;
 	u32 *pbl;
 	dma_addr_t page;
 	int num_pages;
@@ -2906,7 +2908,7 @@ static int qedf_alloc_global_queues(struct qedf_ctx *qedf)
 	 */
 	if (!qedf->num_queues) {
 		QEDF_ERR(&(qedf->dbg_ctx), "No MSI-X vectors available!\n");
-		return -ENOMEM;
+		return 1;
 	}
 
 	/*
@@ -2914,8 +2916,9 @@ static int qedf_alloc_global_queues(struct qedf_ctx *qedf)
 	 * addresses of our queues
 	 */
 	if (!qedf->p_cpuq) {
+		status = 1;
 		QEDF_ERR(&qedf->dbg_ctx, "p_cpuq is NULL.\n");
-		return -EINVAL;
+		goto mem_alloc_failure;
 	}
 
 	qedf->global_queues = kzalloc((sizeof(struct global_queue *)
@@ -2929,8 +2932,8 @@ static int qedf_alloc_global_queues(struct qedf_ctx *qedf)
 		   "qedf->global_queues=%p.\n", qedf->global_queues);
 
 	/* Allocate DMA coherent buffers for BDQ */
-	status = qedf_alloc_bdq(qedf);
-	if (status) {
+	rc = qedf_alloc_bdq(qedf);
+	if (rc) {
 		QEDF_ERR(&qedf->dbg_ctx, "Unable to allocate bdq.\n");
 		goto mem_alloc_failure;
 	}
@@ -3543,6 +3546,11 @@ err2:
 err1:
 	scsi_host_put(lport->host);
 err0:
+	if (qedf) {
+		QEDF_INFO(&qedf->dbg_ctx, QEDF_LOG_DISC, "Probe done.\n");
+
+		clear_bit(QEDF_PROBING, &qedf->flags);
+	}
 	return rc;
 }
 

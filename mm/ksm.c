@@ -793,7 +793,6 @@ static void remove_rmap_item_from_tree(struct rmap_item *rmap_item)
 		stable_node->rmap_hlist_len--;
 
 		put_anon_vma(rmap_item->anon_vma);
-		rmap_item->head = NULL;
 		rmap_item->address &= PAGE_MASK;
 
 	} else if (rmap_item->address & UNSTABLE_FLAG) {
@@ -2388,7 +2387,7 @@ next_mm:
 static void ksm_do_scan(unsigned int scan_npages)
 {
 	struct rmap_item *rmap_item;
-	struct page *page;
+	struct page *uninitialized_var(page);
 
 	while (scan_npages-- && likely(!freezing(current))) {
 		cond_resched();
@@ -2621,13 +2620,7 @@ again:
 		struct vm_area_struct *vma;
 
 		cond_resched();
-		if (!anon_vma_trylock_read(anon_vma)) {
-			if (rwc->try_lock) {
-				rwc->contended = true;
-				return;
-			}
-			anon_vma_lock_read(anon_vma);
-		}
+		anon_vma_lock_read(anon_vma);
 		anon_vma_interval_tree_foreach(vmac, &anon_vma->rb_root,
 					       0, ULONG_MAX) {
 			unsigned long addr;

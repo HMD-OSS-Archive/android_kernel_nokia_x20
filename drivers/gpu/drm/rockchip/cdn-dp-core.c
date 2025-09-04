@@ -72,7 +72,6 @@ static int cdn_dp_grf_write(struct cdn_dp_device *dp,
 	ret = regmap_write(dp->grf, reg, val);
 	if (ret) {
 		DRM_DEV_ERROR(dp->dev, "Could not write to GRF: %d\n", ret);
-		clk_disable_unprepare(dp->grf_clk);
 		return ret;
 	}
 
@@ -275,9 +274,8 @@ static int cdn_dp_connector_get_modes(struct drm_connector *connector)
 	return ret;
 }
 
-static enum drm_mode_status
-cdn_dp_connector_mode_valid(struct drm_connector *connector,
-			    struct drm_display_mode *mode)
+static int cdn_dp_connector_mode_valid(struct drm_connector *connector,
+				       struct drm_display_mode *mode)
 {
 	struct cdn_dp_device *dp = connector_to_dp(connector);
 	struct drm_display_info *display_info = &dp->connector.display_info;
@@ -563,7 +561,7 @@ static void cdn_dp_encoder_mode_set(struct drm_encoder *encoder,
 	video->v_sync_polarity = !!(mode->flags & DRM_MODE_FLAG_NVSYNC);
 	video->h_sync_polarity = !!(mode->flags & DRM_MODE_FLAG_NHSYNC);
 
-	drm_mode_copy(&dp->mode, adjusted);
+	memcpy(&dp->mode, adjusted, sizeof(*mode));
 }
 
 static bool cdn_dp_check_link_status(struct cdn_dp_device *dp)

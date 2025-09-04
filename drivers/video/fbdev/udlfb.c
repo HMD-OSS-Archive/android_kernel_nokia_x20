@@ -27,8 +27,6 @@
 #include <video/udlfb.h>
 #include "edid.h"
 
-#define OUT_EP_NUM	1	/* The endpoint number we will use */
-
 static const struct fb_fix_screeninfo dlfb_fix = {
 	.id =           "udlfb",
 	.type =         FB_TYPE_PACKED_PIXELS,
@@ -1019,7 +1017,6 @@ static void dlfb_ops_destroy(struct fb_info *info)
 	}
 	vfree(dlfb->backing_buffer);
 	kfree(dlfb->edid);
-	dlfb_free_urb_list(dlfb);
 	usb_put_dev(dlfb->udev);
 	kfree(dlfb);
 
@@ -1429,7 +1426,7 @@ static ssize_t metrics_bytes_rendered_show(struct device *fbdev,
 				   struct device_attribute *a, char *buf) {
 	struct fb_info *fb_info = dev_get_drvdata(fbdev);
 	struct dlfb_data *dlfb = fb_info->par;
-	return sysfs_emit(buf, "%u\n",
+	return snprintf(buf, PAGE_SIZE, "%u\n",
 			atomic_read(&dlfb->bytes_rendered));
 }
 
@@ -1437,7 +1434,7 @@ static ssize_t metrics_bytes_identical_show(struct device *fbdev,
 				   struct device_attribute *a, char *buf) {
 	struct fb_info *fb_info = dev_get_drvdata(fbdev);
 	struct dlfb_data *dlfb = fb_info->par;
-	return sysfs_emit(buf, "%u\n",
+	return snprintf(buf, PAGE_SIZE, "%u\n",
 			atomic_read(&dlfb->bytes_identical));
 }
 
@@ -1445,7 +1442,7 @@ static ssize_t metrics_bytes_sent_show(struct device *fbdev,
 				   struct device_attribute *a, char *buf) {
 	struct fb_info *fb_info = dev_get_drvdata(fbdev);
 	struct dlfb_data *dlfb = fb_info->par;
-	return sysfs_emit(buf, "%u\n",
+	return snprintf(buf, PAGE_SIZE, "%u\n",
 			atomic_read(&dlfb->bytes_sent));
 }
 
@@ -1453,7 +1450,7 @@ static ssize_t metrics_cpu_kcycles_used_show(struct device *fbdev,
 				   struct device_attribute *a, char *buf) {
 	struct fb_info *fb_info = dev_get_drvdata(fbdev);
 	struct dlfb_data *dlfb = fb_info->par;
-	return sysfs_emit(buf, "%u\n",
+	return snprintf(buf, PAGE_SIZE, "%u\n",
 			atomic_read(&dlfb->cpu_kcycles_used));
 }
 
@@ -1652,9 +1649,8 @@ static int dlfb_usb_probe(struct usb_interface *intf,
 	const struct device_attribute *attr;
 	struct dlfb_data *dlfb;
 	struct fb_info *info;
-	int retval;
+	int retval = -ENOMEM;
 	struct usb_device *usbdev = interface_to_usbdev(intf);
-	static u8 out_ep[] = {OUT_EP_NUM + USB_DIR_OUT, 0};
 
 	/* usb initialization */
 	dlfb = kzalloc(sizeof(*dlfb), GFP_KERNEL);
@@ -1668,12 +1664,6 @@ static int dlfb_usb_probe(struct usb_interface *intf,
 	dlfb->udev = usb_get_dev(usbdev);
 	usb_set_intfdata(intf, dlfb);
 
-	if (!usb_check_bulk_endpoints(intf, out_ep)) {
-		dev_err(&intf->dev, "Invalid DisplayLink device!\n");
-		retval = -EINVAL;
-		goto error;
-	}
-
 	dev_dbg(&intf->dev, "console enable=%d\n", console);
 	dev_dbg(&intf->dev, "fb_defio enable=%d\n", fb_defio);
 	dev_dbg(&intf->dev, "shadow enable=%d\n", shadow);
@@ -1683,7 +1673,6 @@ static int dlfb_usb_probe(struct usb_interface *intf,
 	if (!dlfb_parse_vendor_descriptor(dlfb, intf)) {
 		dev_err(&intf->dev,
 			"firmware not recognized, incompatible device?\n");
-		retval = -ENODEV;
 		goto error;
 	}
 
@@ -1697,10 +1686,8 @@ static int dlfb_usb_probe(struct usb_interface *intf,
 
 	/* allocates framebuffer driver structure, not framebuffer memory */
 	info = framebuffer_alloc(0, &dlfb->udev->dev);
-	if (!info) {
-		retval = -ENOMEM;
+	if (!info)
 		goto error;
-	}
 
 	dlfb->info = info;
 	info->par = dlfb;
@@ -1929,8 +1916,7 @@ retry:
 		}
 
 		/* urb->transfer_buffer_length set to actual before submit */
-		usb_fill_bulk_urb(urb, dlfb->udev,
-			usb_sndbulkpipe(dlfb->udev, OUT_EP_NUM),
+		usb_fill_bulk_urb(urb, dlfb->udev, usb_sndbulkpipe(dlfb->udev, 1),
 			buf, size, dlfb_urb_completion, unode);
 		urb->transfer_flags |= URB_NO_TRANSFER_DMA_MAP;
 

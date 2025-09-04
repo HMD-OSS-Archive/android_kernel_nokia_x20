@@ -75,13 +75,6 @@ static void j1939_can_recv(struct sk_buff *iskb, void *data)
 	skcb->addr.pgn = (cf->can_id >> 8) & J1939_PGN_MAX;
 	/* set default message type */
 	skcb->addr.type = J1939_TP;
-
-	if (!j1939_address_is_valid(skcb->addr.sa)) {
-		netdev_err_once(priv->ndev, "%s: sa is broadcast address, ignoring!\n",
-				__func__);
-		goto done;
-	}
-
 	if (j1939_pgn_is_pdu1(skcb->addr.pgn)) {
 		/* Type 1: with destination address */
 		skcb->addr.da = skcb->addr.pgn;
@@ -122,7 +115,7 @@ static void j1939_can_recv(struct sk_buff *iskb, void *data)
 #define J1939_CAN_ID CAN_EFF_FLAG
 #define J1939_CAN_MASK (CAN_EFF_FLAG | CAN_RTR_FLAG)
 
-static DEFINE_MUTEX(j1939_netdev_lock);
+static DEFINE_SPINLOCK(j1939_netdev_lock);
 
 static struct j1939_priv *j1939_priv_create(struct net_device *ndev)
 {
@@ -200,10 +193,6 @@ static void j1939_can_rx_unregister(struct j1939_priv *priv)
 	can_rx_unregister(dev_net(ndev), ndev, J1939_CAN_ID, J1939_CAN_MASK,
 			  j1939_can_recv, priv);
 
-	/* The last reference of priv is dropped by the RCU deferred
-	 * j1939_sk_sock_destruct() of the last socket, so we can
-	 * safely drop this reference here.
-	 */
 	j1939_priv_put(priv);
 }
 
@@ -216,7 +205,7 @@ static void __j1939_rx_release(struct kref *kref)
 	j1939_can_rx_unregister(priv);
 	j1939_ecu_unmap_all(priv);
 	j1939_priv_set(priv->ndev, NULL);
-	mutex_unlock(&j1939_netdev_lock);
+	spin_unlock(&j1939_netdev_lock);
 }
 
 /* get pointer to priv without increasing ref counter */
@@ -250,9 +239,9 @@ static struct j1939_priv *j1939_priv_get_by_ndev(struct net_device *ndev)
 {
 	struct j1939_priv *priv;
 
-	mutex_lock(&j1939_netdev_lock);
+	spin_lock(&j1939_netdev_lock);
 	priv = j1939_priv_get_by_ndev_locked(ndev);
-	mutex_unlock(&j1939_netdev_lock);
+	spin_unlock(&j1939_netdev_lock);
 
 	return priv;
 }
@@ -262,14 +251,11 @@ struct j1939_priv *j1939_netdev_start(struct net_device *ndev)
 	struct j1939_priv *priv, *priv_new;
 	int ret;
 
-	mutex_lock(&j1939_netdev_lock);
-	priv = j1939_priv_get_by_ndev_locked(ndev);
+	priv = j1939_priv_get_by_ndev(ndev);
 	if (priv) {
 		kref_get(&priv->rx_kref);
-		mutex_unlock(&j1939_netdev_lock);
 		return priv;
 	}
-	mutex_unlock(&j1939_netdev_lock);
 
 	priv = j1939_priv_create(ndev);
 	if (!priv)
@@ -279,31 +265,29 @@ struct j1939_priv *j1939_netdev_start(struct net_device *ndev)
 	spin_lock_init(&priv->j1939_socks_lock);
 	INIT_LIST_HEAD(&priv->j1939_socks);
 
-	mutex_lock(&j1939_netdev_lock);
+	spin_lock(&j1939_netdev_lock);
 	priv_new = j1939_priv_get_by_ndev_locked(ndev);
 	if (priv_new) {
 		/* Someone was faster than us, use their priv and roll
 		 * back our's.
 		 */
-		kref_get(&priv_new->rx_kref);
-		mutex_unlock(&j1939_netdev_lock);
+		spin_unlock(&j1939_netdev_lock);
 		dev_put(ndev);
 		kfree(priv);
+		kref_get(&priv_new->rx_kref);
 		return priv_new;
 	}
 	j1939_priv_set(ndev, priv);
+	spin_unlock(&j1939_netdev_lock);
 
 	ret = j1939_can_rx_register(priv);
 	if (ret < 0)
 		goto out_priv_put;
 
-	mutex_unlock(&j1939_netdev_lock);
 	return priv;
 
  out_priv_put:
 	j1939_priv_set(ndev, NULL);
-	mutex_unlock(&j1939_netdev_lock);
-
 	dev_put(ndev);
 	kfree(priv);
 
@@ -312,7 +296,7 @@ struct j1939_priv *j1939_netdev_start(struct net_device *ndev)
 
 void j1939_netdev_stop(struct j1939_priv *priv)
 {
-	kref_put_mutex(&priv->rx_kref, __j1939_rx_release, &j1939_netdev_lock);
+	kref_put_lock(&priv->rx_kref, __j1939_rx_release, &j1939_netdev_lock);
 	j1939_priv_put(priv);
 }
 
@@ -339,9 +323,6 @@ int j1939_send_one(struct j1939_priv *priv, struct sk_buff *skb)
 
 	/* re-claim the CAN_HDR from the SKB */
 	cf = skb_push(skb, J1939_CAN_HDR);
-
-	/* initialize header structure */
-	memset(cf, 0, J1939_CAN_HDR);
 
 	/* make it a full can frame again */
 	skb_put(skb, J1939_CAN_FTR + (8 - dlc));

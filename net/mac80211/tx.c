@@ -651,14 +651,13 @@ ieee80211_tx_h_select_key(struct ieee80211_tx_data *tx)
 		}
 
 		if (unlikely(tx->key && tx->key->flags & KEY_FLAG_TAINTED &&
-			     !ieee80211_is_deauth(hdr->frame_control)) &&
-			     tx->skb->protocol != tx->sdata->control_port_protocol)
+			     !ieee80211_is_deauth(hdr->frame_control)))
 			return TX_DROP;
 
 		if (!skip_hw && tx->key &&
 		    tx->key->flags & KEY_FLAG_UPLOADED_TO_HARDWARE)
 			info->control.hw_key = &tx->key->conf;
-	} else if (ieee80211_is_data_present(hdr->frame_control) && tx->sta &&
+	} else if (!ieee80211_is_mgmt(hdr->frame_control) && tx->sta &&
 		   test_sta_flag(tx->sta, WLAN_STA_USES_ENCRYPTION)) {
 		return TX_DROP;
 	}
@@ -1945,24 +1944,19 @@ static bool ieee80211_tx(struct ieee80211_sub_if_data *sdata,
 
 /* device xmit handlers */
 
-enum ieee80211_encrypt {
-	ENCRYPT_NO,
-	ENCRYPT_MGMT,
-	ENCRYPT_DATA,
-};
-
 static int ieee80211_skb_resize(struct ieee80211_sub_if_data *sdata,
 				struct sk_buff *skb,
-				int head_need,
-				enum ieee80211_encrypt encrypt)
+				int head_need, bool may_encrypt)
 {
 	struct ieee80211_local *local = sdata->local;
+	struct ieee80211_hdr *hdr;
 	bool enc_tailroom;
 	int tail_need = 0;
 
-	enc_tailroom = encrypt == ENCRYPT_MGMT ||
-		       (encrypt == ENCRYPT_DATA &&
-			sdata->crypto_tx_tailroom_needed_cnt);
+	hdr = (struct ieee80211_hdr *) skb->data;
+	enc_tailroom = may_encrypt &&
+		       (sdata->crypto_tx_tailroom_needed_cnt ||
+			ieee80211_is_mgmt(hdr->frame_control));
 
 	if (enc_tailroom) {
 		tail_need = IEEE80211_ENCRYPT_TAILROOM;
@@ -1994,29 +1988,23 @@ void ieee80211_xmit(struct ieee80211_sub_if_data *sdata,
 {
 	struct ieee80211_local *local = sdata->local;
 	struct ieee80211_tx_info *info = IEEE80211_SKB_CB(skb);
-	struct ieee80211_hdr *hdr = (struct ieee80211_hdr *) skb->data;
+	struct ieee80211_hdr *hdr;
 	int headroom;
-	enum ieee80211_encrypt encrypt;
+	bool may_encrypt;
 
-	if (info->flags & IEEE80211_TX_INTFL_DONT_ENCRYPT)
-		encrypt = ENCRYPT_NO;
-	else if (ieee80211_is_mgmt(hdr->frame_control))
-		encrypt = ENCRYPT_MGMT;
-	else
-		encrypt = ENCRYPT_DATA;
+	may_encrypt = !(info->flags & IEEE80211_TX_INTFL_DONT_ENCRYPT);
 
 	headroom = local->tx_headroom;
-	if (encrypt != ENCRYPT_NO)
+	if (may_encrypt)
 		headroom += sdata->encrypt_headroom;
 	headroom -= skb_headroom(skb);
 	headroom = max_t(int, 0, headroom);
 
-	if (ieee80211_skb_resize(sdata, skb, headroom, encrypt)) {
+	if (ieee80211_skb_resize(sdata, skb, headroom, may_encrypt)) {
 		ieee80211_free_txskb(&local->hw, skb);
 		return;
 	}
 
-	/* reload after potential resize */
 	hdr = (struct ieee80211_hdr *) skb->data;
 	info->control.vif = &sdata->vif;
 
@@ -2157,11 +2145,7 @@ static bool ieee80211_parse_tx_radiotap(struct ieee80211_local *local,
 			}
 
 			vht_mcs = iterator.this_arg[4] >> 4;
-			if (vht_mcs > 11)
-				vht_mcs = 0;
 			vht_nss = iterator.this_arg[4] & 0xF;
-			if (!vht_nss || vht_nss > 8)
-				vht_nss = 1;
 			break;
 
 		/*
@@ -2824,7 +2808,7 @@ static struct sk_buff *ieee80211_build_hdr(struct ieee80211_sub_if_data *sdata,
 		head_need += sdata->encrypt_headroom;
 		head_need += local->tx_headroom;
 		head_need = max_t(int, 0, head_need);
-		if (ieee80211_skb_resize(sdata, skb, head_need, ENCRYPT_DATA)) {
+		if (ieee80211_skb_resize(sdata, skb, head_need, true)) {
 			ieee80211_free_txskb(&local->hw, skb);
 			skb = NULL;
 			return ERR_PTR(-ENOMEM);
@@ -3194,9 +3178,7 @@ static bool ieee80211_amsdu_prepare_head(struct ieee80211_sub_if_data *sdata,
 	if (info->control.flags & IEEE80211_TX_CTRL_AMSDU)
 		return true;
 
-	if (!ieee80211_amsdu_realloc_pad(local, skb,
-					 sizeof(*amsdu_hdr) +
-					 local->hw.extra_tx_headroom))
+	if (!ieee80211_amsdu_realloc_pad(local, skb, sizeof(*amsdu_hdr)))
 		return false;
 
 	data = skb_push(skb, sizeof(*amsdu_hdr));
@@ -3329,14 +3311,6 @@ static bool ieee80211_amsdu_aggregate(struct ieee80211_sub_if_data *sdata,
 
 	if (!ieee80211_amsdu_prepare_head(sdata, fast_tx, head))
 		goto out;
-
-	/* If n == 2, the "while (*frag_tail)" loop above didn't execute
-	 * and  frag_tail should be &skb_shinfo(head)->frag_list.
-	 * However, ieee80211_amsdu_prepare_head() can reallocate it.
-	 * Reload frag_tail to have it pointing to the correct place.
-	 */
-	if (n == 2)
-		frag_tail = &skb_shinfo(head)->frag_list;
 
 	/*
 	 * Pad out the previous subframe to a multiple of 4 by adding the
@@ -3508,7 +3482,7 @@ static bool ieee80211_xmit_fast(struct ieee80211_sub_if_data *sdata,
 	if (unlikely(ieee80211_skb_resize(sdata, skb,
 					  max_t(int, extra_head + hw_headroom -
 						     skb_headroom(skb), 0),
-					  ENCRYPT_NO))) {
+					  false))) {
 		kfree_skb(skb);
 		return true;
 	}
@@ -3597,7 +3571,7 @@ begin:
 	    test_bit(IEEE80211_TXQ_STOP_NETIF_TX, &txqi->flags))
 		goto out;
 
-	if (vif->txqs_stopped[txq->ac]) {
+	if (vif->txqs_stopped[ieee80211_ac_from_tid(txq->tid)]) {
 		set_bit(IEEE80211_TXQ_STOP_NETIF_TX, &txqi->flags);
 		goto out;
 	}
@@ -3788,7 +3762,7 @@ void __ieee80211_schedule_txq(struct ieee80211_hw *hw,
 		 * get immediately moved to the back of the list on the next
 		 * call to ieee80211_next_txq().
 		 */
-		if (txqi->txq.sta && local->airtime_flags &&
+		if (txqi->txq.sta &&
 		    wiphy_ext_feature_isset(local->hw.wiphy,
 					    NL80211_EXT_FEATURE_AIRTIME_FAIRNESS))
 			list_add(&txqi->schedule_order,
@@ -3938,9 +3912,6 @@ void __ieee80211_subif_start_xmit(struct sk_buff *skb,
 
 		skb->prev = NULL;
 		skb->next = NULL;
-
-		if (skb->protocol == sdata->control_port_protocol)
-			ctrl_flags |= IEEE80211_TX_CTRL_SKIP_MPATH_LOOKUP;
 
 		skb = ieee80211_build_hdr(sdata, skb, info_flags,
 					  sta, ctrl_flags);
@@ -5125,8 +5096,7 @@ int ieee80211_tx_control_port(struct wiphy *wiphy, struct net_device *dev,
 		return -EINVAL;
 
 	if (proto == sdata->control_port_protocol)
-		ctrl_flags |= IEEE80211_TX_CTRL_PORT_CTRL_PROTO |
-			      IEEE80211_TX_CTRL_SKIP_MPATH_LOOKUP;
+		ctrl_flags |= IEEE80211_TX_CTRL_PORT_CTRL_PROTO;
 
 	if (unencrypted)
 		flags = IEEE80211_TX_INTFL_DONT_ENCRYPT;

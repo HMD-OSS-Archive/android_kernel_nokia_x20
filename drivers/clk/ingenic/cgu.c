@@ -393,21 +393,15 @@ static unsigned int
 ingenic_clk_calc_hw_div(const struct ingenic_cgu_clk_info *clk_info,
 			unsigned int div)
 {
-	unsigned int i, best_i = 0, best = (unsigned int)-1;
+	unsigned int i;
 
 	for (i = 0; i < (1 << clk_info->div.bits)
 				&& clk_info->div.div_table[i]; i++) {
-		if (clk_info->div.div_table[i] >= div &&
-		    clk_info->div.div_table[i] < best) {
-			best = clk_info->div.div_table[i];
-			best_i = i;
-
-			if (div == best)
-				break;
-		}
+		if (clk_info->div.div_table[i] >= div)
+			return i;
 	}
 
-	return best_i;
+	return i - 1;
 }
 
 static unsigned
@@ -426,15 +420,15 @@ ingenic_clk_calc_div(const struct ingenic_cgu_clk_info *clk_info,
 	}
 
 	/* Impose hardware constraints */
-	div = clamp_t(unsigned int, div, clk_info->div.div,
-		      clk_info->div.div << clk_info->div.bits);
+	div = min_t(unsigned, div, 1 << clk_info->div.bits);
+	div = max_t(unsigned, div, 1);
 
 	/*
 	 * If the divider value itself must be divided before being written to
 	 * the divider register, we must ensure we don't have any bits set that
 	 * would be lost as a result of doing so.
 	 */
-	div = DIV_ROUND_UP(div, clk_info->div.div);
+	div /= clk_info->div.div;
 	div *= clk_info->div.div;
 
 	return div;

@@ -2,7 +2,7 @@
 /*
  * QTI Secure Execution Environment Communicator (QSEECOM) driver
  *
- * Copyright (c) 2012-2021, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2012-2020, The Linux Foundation. All rights reserved.
  */
 
 #define pr_fmt(fmt) "QSEECOM: %s: " fmt, __func__
@@ -36,7 +36,7 @@
 #include <soc/qcom/qseecomi.h>
 #include <asm/cacheflush.h>
 #include "qseecom_kernel.h"
-#include <linux/crypto-qti-common.h>
+#include <crypto/ice.h>
 #include <linux/delay.h>
 #include <linux/signal.h>
 #include <linux/compat.h>
@@ -90,9 +90,7 @@
 #define TWO 2
 #define QSEECOM_UFS_ICE_CE_NUM 10
 #define QSEECOM_SDCC_ICE_CE_NUM 20
-
-/* Assume the ice device contains 32 slots (0-31) and reserve the last one for the FDE  */
-#define QSEECOM_ICE_FDE_KEY_INDEX 31
+#define QSEECOM_ICE_FDE_KEY_INDEX 0
 
 #define PHY_ADDR_4G	(1ULL<<32)
 
@@ -378,7 +376,7 @@ struct qseecom_client_handle {
 
 struct qseecom_listener_handle {
 	u32               id;
-	bool              register_pending;
+	bool              unregister_pending;
 	bool              release_called;
 };
 
@@ -470,8 +468,6 @@ static void __qseecom_free_coherent_buf(uint32_t size,
 #define QSEECOM_SCM_EBUSY_WAIT_MS 30
 #define QSEECOM_SCM_EBUSY_MAX_RETRY 67
 
-#define QSEE_RESULT_FAIL_APP_BUSY 315
-
 static int __qseecom_scm_call2_locked(uint32_t smc_id, struct scm_desc *desc)
 {
 	int ret = 0;
@@ -479,14 +475,14 @@ static int __qseecom_scm_call2_locked(uint32_t smc_id, struct scm_desc *desc)
 
 	do {
 		ret = qcom_scm_qseecom_call_noretry(smc_id, desc);
-		if ((ret == -EBUSY) || (desc && (desc->ret[0] == -QSEE_RESULT_FAIL_APP_BUSY))) {
+		if (ret == -EBUSY) {
 			mutex_unlock(&app_access_lock);
 			msleep(QSEECOM_SCM_EBUSY_WAIT_MS);
 			mutex_lock(&app_access_lock);
 		}
 		if (retry_count == 33)
 			pr_warn("secure world has been busy for 1 second!\n");
-	} while (((ret == -EBUSY) || (desc && (desc->ret[0] == -QSEE_RESULT_FAIL_APP_BUSY))) &&
+	} while (ret == -EBUSY &&
 			(retry_count++ < QSEECOM_SCM_EBUSY_MAX_RETRY));
 	return ret;
 }
@@ -880,23 +876,6 @@ static int qseecom_scm_call2(uint32_t svc_id, uint32_t tz_cmd_id,
 			__qseecom_reentrancy_check_if_no_app_blocked(smc_id);
 			ret = __qseecom_scm_call2_locked(smc_id, &desc);
 			break;
-		}
-		case QSEOS_DIAG_FUSE_REQ_CMD:
-		case QSEOS_DIAG_FUSE_REQ_RSP_CMD: {
-			struct qseecom_client_send_fsm_diag_req *req;
-
-			smc_id = TZ_SECBOOT_GET_FUSE_INFO;
-			desc.arginfo = TZ_SECBOOT_GET_FUSE_INFO_PARAM_ID;
-
-			req = (struct qseecom_client_send_fsm_diag_req *) req_buf;
-			desc.args[0] = req->req_ptr;
-			desc.args[1] = req->req_len;
-			desc.args[2] = req->rsp_ptr;
-			desc.args[3] = req->rsp_len;
-			__qseecom_reentrancy_check_if_no_app_blocked(smc_id);
-			ret = __qseecom_scm_call2_locked(smc_id, &desc);
-			break;
-
 		}
 		case QSEOS_GENERATE_KEY: {
 			u32 tzbuflen = PAGE_ALIGN(sizeof
@@ -1550,11 +1529,6 @@ static int qseecom_register_listener(struct qseecom_dev_handle *data,
 	struct qseecom_registered_listener_list *new_entry;
 	struct qseecom_registered_listener_list *ptr_svc;
 
-	if (data->listener.register_pending) {
-		pr_err("Already a listner registration is in process on this FD\n");
-		return -EINVAL;
-	}
-
 	ret = copy_from_user(&rcvd_lstnr, argp, sizeof(rcvd_lstnr));
 	if (ret) {
 		pr_err("copy_from_user failed\n");
@@ -1563,13 +1537,6 @@ static int qseecom_register_listener(struct qseecom_dev_handle *data,
 	if (!access_ok((void __user *)rcvd_lstnr.virt_sb_base,
 			rcvd_lstnr.sb_size))
 		return -EFAULT;
-
-	ptr_svc = __qseecom_find_svc(data->listener.id);
-	if (ptr_svc) {
-		pr_err("Already a listener registered on this data: lid=%d\n",
-			data->listener.id);
-		return -EINVAL;
-	}
 
 	ptr_svc = __qseecom_find_svc(rcvd_lstnr.listener_id);
 	if (ptr_svc) {
@@ -1614,16 +1581,13 @@ static int qseecom_register_listener(struct qseecom_dev_handle *data,
 	new_entry->svc.listener_id = rcvd_lstnr.listener_id;
 	new_entry->sb_length = rcvd_lstnr.sb_size;
 	new_entry->user_virt_sb_base = rcvd_lstnr.virt_sb_base;
-	data->listener.register_pending = true;
 	if (__qseecom_set_sb_memory(new_entry, data, &rcvd_lstnr)) {
 		pr_err("qseecom_set_sb_memory failed for listener %d, size %d\n",
 				rcvd_lstnr.listener_id, rcvd_lstnr.sb_size);
 		__qseecom_free_tzbuf(&new_entry->sglistinfo_shm);
 		kzfree(new_entry);
-		data->listener.register_pending = false;
 		return -ENOMEM;
 	}
-	data->listener.register_pending = false;
 
 	init_waitqueue_head(&new_entry->rcv_req_wq);
 	init_waitqueue_head(&new_entry->listener_block_app_wq);
@@ -3345,7 +3309,7 @@ static int __qseecom_process_rpmb_svc_cmd(struct qseecom_dev_handle *data_ptr,
 static int __qseecom_process_fsm_key_svc_cmd(
 		struct qseecom_dev_handle *data_ptr,
 		struct qseecom_send_svc_cmd_req *req_ptr,
-		struct qseecom_client_send_fsm_diag_req *send_svc_ireq_ptr)
+		struct qseecom_client_send_fsm_key_req *send_svc_ireq_ptr)
 {
 	int ret = 0;
 	uint32_t reqd_len_sb_in = 0;
@@ -3363,6 +3327,7 @@ static int __qseecom_process_fsm_key_svc_cmd(
 				reqd_len_sb_in, data_ptr->client.sb_length);
 		return -ENOMEM;
 	}
+
 	send_svc_ireq_ptr->qsee_cmd_id = req_ptr->cmd_id;
 	send_svc_ireq_ptr->req_len = req_ptr->cmd_req_len;
 	send_svc_ireq_ptr->rsp_ptr = (uint32_t)(__qseecom_uvirt_to_kphys(
@@ -3466,7 +3431,7 @@ static int qseecom_send_service_cmd(struct qseecom_dev_handle *data,
 {
 	int ret = 0;
 	struct qseecom_client_send_service_ireq send_svc_ireq;
-	struct qseecom_client_send_fsm_diag_req send_fsm_diag_svc_ireq;
+	struct qseecom_client_send_fsm_key_req send_fsm_key_svc_ireq;
 	struct qseecom_command_scm_resp resp;
 	struct qseecom_send_svc_cmd_req req;
 	void   *send_req_ptr;
@@ -3504,11 +3469,8 @@ static int qseecom_send_service_cmd(struct qseecom_dev_handle *data,
 	case QSEOS_FSM_OEM_FUSE_READ_ROW:
 	case QSEOS_FSM_ENCFS_REQ_CMD:
 	case QSEOS_FSM_ENCFS_REQ_RSP_CMD:
-	case QSEOS_DIAG_FUSE_REQ_CMD:
-	case QSEOS_DIAG_FUSE_REQ_RSP_CMD:
-
-		send_req_ptr = &send_fsm_diag_svc_ireq;
-		req_buf_size = sizeof(send_fsm_diag_svc_ireq);
+		send_req_ptr = &send_fsm_key_svc_ireq;
+		req_buf_size = sizeof(send_fsm_key_svc_ireq);
 		if (__qseecom_process_fsm_key_svc_cmd(data, &req,
 				send_req_ptr))
 			return -EINVAL;
@@ -5413,8 +5375,8 @@ int qseecom_process_listener_from_smcinvoke(uint32_t *result,
 	if (ret)
 		pr_err("Failed on cmd %d for lsnr %d session %d, ret = %d\n",
 			resp.result, resp.data, resp.resp_type, ret);
-	*result = resp.resp_type;
-	*response_type = resp.result;
+	*result = resp.result;
+	*response_type = resp.resp_type;
 	*data = resp.data;
 	return ret;
 }
@@ -6426,9 +6388,9 @@ static int qseecom_enable_ice_setup(int usage)
 	int ret = 0;
 
 	if (usage == QSEOS_KM_USAGE_UFS_ICE_DISK_ENCRYPTION)
-		ret = crypto_qti_ice_setup_ice_hw("ufs", true);
+		ret = qcom_ice_setup_ice_hw("ufs", true);
 	else if (usage == QSEOS_KM_USAGE_SDCC_ICE_DISK_ENCRYPTION)
-		ret = crypto_qti_ice_setup_ice_hw("sdcc", true);
+		ret = qcom_ice_setup_ice_hw("sdcc", true);
 
 	return ret;
 }
@@ -6438,9 +6400,9 @@ static int qseecom_disable_ice_setup(int usage)
 	int ret = 0;
 
 	if (usage == QSEOS_KM_USAGE_UFS_ICE_DISK_ENCRYPTION)
-		ret = crypto_qti_ice_setup_ice_hw("ufs", false);
+		ret = qcom_ice_setup_ice_hw("ufs", false);
 	else if (usage == QSEOS_KM_USAGE_SDCC_ICE_DISK_ENCRYPTION)
-		ret = crypto_qti_ice_setup_ice_hw("sdcc", false);
+		ret = qcom_ice_setup_ice_hw("sdcc", false);
 
 	return ret;
 }
@@ -8303,7 +8265,7 @@ long qseecom_ioctl(struct file *file,
 			pr_err("copy_from_user failed\n");
 			return -EFAULT;
 		}
-		crypto_qti_ice_set_fde_flag(ice_data.flag);
+		qcom_ice_set_fde_flag(ice_data.flag);
 		break;
 	}
 	case QSEECOM_IOCTL_FBE_CLEAR_KEY: {

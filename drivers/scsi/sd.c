@@ -123,7 +123,7 @@ static int sd_eh_action(struct scsi_cmnd *, int);
 static void sd_read_capacity(struct scsi_disk *sdkp, unsigned char *buffer);
 static void scsi_disk_release(struct device *cdev);
 
-//static DEFINE_IDA(sd_index_ida); //HMD Ling.yi [TTG-1698] fix disk index
+static DEFINE_IDA(sd_index_ida);
 
 /* This semaphore is used to mediate the 0->1 reference get in the
  * face of object destruction (i.e. we can't allow a get on an
@@ -932,10 +932,8 @@ static blk_status_t sd_setup_write_zeroes_cmnd(struct scsi_cmnd *cmd)
 		}
 	}
 
-	if (sdp->no_write_same) {
-		rq->rq_flags |= RQF_QUIET;
+	if (sdp->no_write_same)
 		return BLK_STS_TARGET;
-	}
 
 	if (sdkp->ws16 || lba > 0xffffffff || nr_blocks > 0xffff)
 		return sd_setup_write_same16_cmnd(cmd, false);
@@ -3301,10 +3299,6 @@ static int sd_probe(struct device *dev)
 	struct gendisk *gd;
 	int index;
 	int error;
-// HMD Ling.yi [TTG-1698] fix disk index start
-    char devname_t[10] = { 0 };
-    static int indexbk = 8;
-// HMD Ling.yi [TTG-1698] fix disk index end
 
 	scsi_autopm_get_device(sdp);
 	error = -ENODEV;
@@ -3329,21 +3323,8 @@ static int sd_probe(struct device *dev)
 	gd = alloc_disk(SD_MINORS);
 	if (!gd)
 		goto out_free;
-// HMD Ling.yi [TTG-1698] fix disk index start
-    //index = ida_alloc(&sd_index_ida, GFP_KERNEL);
-    // copy 0:0:0:X
-    strncpy(devname_t, dev_name(dev), 7);
-    if(!strncmp(devname_t,"0:0:0:",6)){
-        index = devname_t[6]-'0';
-        sdev_printk(KERN_WARNING, sdp, "YYY____ index %d------devname(%s).\n",index,dev_name(dev));
-    }
-    else{
 
-        index = indexbk;
-        indexbk ++ ;
-        sdev_printk(KERN_WARNING, sdp, "YYY____ using bk index %d------devname(%s).\n",index,dev_name(dev));
-    }
-// HMD Ling.yi [TTG-1698] fix disk index end
+	index = ida_alloc(&sd_index_ida, GFP_KERNEL);
 	if (index < 0) {
 		sdev_printk(KERN_WARNING, sdp, "sd_probe: memory exhausted.\n");
 		goto out_put;
@@ -3371,16 +3352,15 @@ static int sd_probe(struct device *dev)
 	}
 
 	device_initialize(&sdkp->dev);
-	sdkp->dev.parent = get_device(dev);
+	sdkp->dev.parent = dev;
 	sdkp->dev.class = &sd_disk_class;
 	dev_set_name(&sdkp->dev, "%s", dev_name(dev));
 
 	error = device_add(&sdkp->dev);
-	if (error) {
-		put_device(&sdkp->dev);
-		goto out;
-	}
+	if (error)
+		goto out_free_index;
 
+	get_device(dev);
 	dev_set_drvdata(dev, sdkp);
 
 	gd->major = sd_major((index & 0xf0) >> 4);
@@ -3435,7 +3415,7 @@ static int sd_probe(struct device *dev)
 	return 0;
 
  out_free_index:
-	//ida_free(&sd_index_ida, index);//HMD Ling.yi [TTG-1698] fix disk index
+	ida_free(&sd_index_ida, index);
  out_put:
 	put_disk(gd);
  out_free:
@@ -3498,7 +3478,7 @@ static void scsi_disk_release(struct device *dev)
 	struct gendisk *disk = sdkp->disk;
 	struct request_queue *q = disk->queue;
 
-	//ida_free(&sd_index_ida, sdkp->index); //HMD Ling.yi [TTG-1698] fix disk index
+	ida_free(&sd_index_ida, sdkp->index);
 
 	/*
 	 * Wait until all requests that are in progress have completed.

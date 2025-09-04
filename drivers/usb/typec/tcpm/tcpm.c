@@ -159,14 +159,6 @@ enum pd_msg_request {
 	PD_MSG_DATA_SOURCE_CAP,
 };
 
-enum adev_actions {
-	ADEV_NONE = 0,
-	ADEV_NOTIFY_USB_AND_QUEUE_VDM,
-	ADEV_QUEUE_VDM,
-	ADEV_QUEUE_VDM_SEND_EXIT_MODE_ON_FAIL,
-	ADEV_ATTENTION,
-};
-
 /* Events from low level driver */
 
 #define TCPM_CC_EVENT		BIT(0)
@@ -741,7 +733,6 @@ static int tcpm_set_current_limit(struct tcpm_port *port, u32 max_ma, u32 mv)
 
 	port->supply_voltage = mv;
 	port->current_limit = max_ma;
-	power_supply_changed(port->psy);
 
 	if (port->tcpc->set_current_limit)
 		ret = port->tcpc->set_current_limit(port->tcpc, max_ma, mv);
@@ -953,15 +944,16 @@ static void tcpm_queue_vdm(struct tcpm_port *port, const u32 header,
 	port->vdm_state = VDM_STATE_READY;
 }
 
-static void svdm_consume_identity(struct tcpm_port *port, const u32 *p, int cnt)
+static void svdm_consume_identity(struct tcpm_port *port, const __le32 *payload,
+				  int cnt)
 {
-	u32 vdo = p[VDO_INDEX_IDH];
-	u32 product = p[VDO_INDEX_PRODUCT];
+	u32 vdo = le32_to_cpu(payload[VDO_INDEX_IDH]);
+	u32 product = le32_to_cpu(payload[VDO_INDEX_PRODUCT]);
 
 	memset(&port->mode_data, 0, sizeof(port->mode_data));
 
 	port->partner_ident.id_header = vdo;
-	port->partner_ident.cert_stat = p[VDO_INDEX_CSTAT];
+	port->partner_ident.cert_stat = le32_to_cpu(payload[VDO_INDEX_CSTAT]);
 	port->partner_ident.product = product;
 
 	typec_partner_set_identity(port->partner);
@@ -971,15 +963,17 @@ static void svdm_consume_identity(struct tcpm_port *port, const u32 *p, int cnt)
 		 PD_PRODUCT_PID(product), product & 0xffff);
 }
 
-static bool svdm_consume_svids(struct tcpm_port *port, const u32 *p, int cnt)
+static bool svdm_consume_svids(struct tcpm_port *port, const __le32 *payload,
+			       int cnt)
 {
 	struct pd_mode_data *pmdata = &port->mode_data;
 	int i;
 
 	for (i = 1; i < cnt; i++) {
+		u32 p = le32_to_cpu(payload[i]);
 		u16 svid;
 
-		svid = (p[i] >> 16) & 0xffff;
+		svid = (p >> 16) & 0xffff;
 		if (!svid)
 			return false;
 
@@ -989,7 +983,7 @@ static bool svdm_consume_svids(struct tcpm_port *port, const u32 *p, int cnt)
 		pmdata->svids[pmdata->nsvids++] = svid;
 		tcpm_log(port, "SVID %d: 0x%x", pmdata->nsvids, svid);
 
-		svid = p[i] & 0xffff;
+		svid = p & 0xffff;
 		if (!svid)
 			return false;
 
@@ -999,27 +993,14 @@ static bool svdm_consume_svids(struct tcpm_port *port, const u32 *p, int cnt)
 		pmdata->svids[pmdata->nsvids++] = svid;
 		tcpm_log(port, "SVID %d: 0x%x", pmdata->nsvids, svid);
 	}
-
-	/*
-	 * PD3.0 Spec 6.4.4.3.2: The SVIDs are returned 2 per VDO (see Table
-	 * 6-43), and can be returned maximum 6 VDOs per response (see Figure
-	 * 6-19). If the Respondersupports 12 or more SVID then the Discover
-	 * SVIDs Command Shall be executed multiple times until a Discover
-	 * SVIDs VDO is returned ending either with a SVID value of 0x0000 in
-	 * the last part of the last VDO or with a VDO containing two SVIDs
-	 * with values of 0x0000.
-	 *
-	 * However, some odd dockers support SVIDs less than 12 but without
-	 * 0x0000 in the last VDO, so we need to break the Discover SVIDs
-	 * request and return false here.
-	 */
-	return cnt == 7;
+	return true;
 abort:
 	tcpm_log(port, "SVID_DISCOVERY_MAX(%d) too low!", SVID_DISCOVERY_MAX);
 	return false;
 }
 
-static void svdm_consume_modes(struct tcpm_port *port, const u32 *p, int cnt)
+static void svdm_consume_modes(struct tcpm_port *port, const __le32 *payload,
+			       int cnt)
 {
 	struct pd_mode_data *pmdata = &port->mode_data;
 	struct typec_altmode_desc *paltmode;
@@ -1036,7 +1017,7 @@ static void svdm_consume_modes(struct tcpm_port *port, const u32 *p, int cnt)
 
 		paltmode->svid = pmdata->svids[pmdata->svid_index];
 		paltmode->mode = i;
-		paltmode->vdo = p[i];
+		paltmode->vdo = le32_to_cpu(payload[i]);
 
 		tcpm_log(port, " Alternate mode %d: SVID 0x%04x, VDO %d: 0x%08x",
 			 pmdata->altmodes, paltmode->svid,
@@ -1064,16 +1045,20 @@ static void tcpm_register_partner_altmodes(struct tcpm_port *port)
 
 #define supports_modal(port)	PD_IDH_MODAL_SUPP((port)->partner_ident.id_header)
 
-static int tcpm_pd_svdm(struct tcpm_port *port, struct typec_altmode *adev,
-			const u32 *p, int cnt, u32 *response,
-			enum adev_actions *adev_action)
+static int tcpm_pd_svdm(struct tcpm_port *port, const __le32 *payload, int cnt,
+			u32 *response)
 {
+	struct typec_altmode *adev;
 	struct typec_altmode *pdev;
 	struct pd_mode_data *modep;
+	u32 p[PD_MAX_PAYLOAD];
 	int rlen = 0;
 	int cmd_type;
 	int cmd;
 	int i;
+
+	for (i = 0; i < cnt; i++)
+		p[i] = le32_to_cpu(payload[i]);
 
 	cmd_type = PD_VDO_CMDT(p[0]);
 	cmd = PD_VDO_CMD(p[0]);
@@ -1082,6 +1067,9 @@ static int tcpm_pd_svdm(struct tcpm_port *port, struct typec_altmode *adev,
 		 p[0], cmd_type, cmd, cnt);
 
 	modep = &port->mode_data;
+
+	adev = typec_match_altmode(port->port_altmode, ALTMODE_DISCOVERY_MAX,
+				   PD_VDO_VID(p[0]), PD_VDO_OPOS(p[0]));
 
 	pdev = typec_match_altmode(port->partner_altmode, ALTMODE_DISCOVERY_MAX,
 				   PD_VDO_VID(p[0]), PD_VDO_OPOS(p[0]));
@@ -1108,7 +1096,8 @@ static int tcpm_pd_svdm(struct tcpm_port *port, struct typec_altmode *adev,
 			break;
 		case CMD_ATTENTION:
 			/* Attention command does not have response */
-			*adev_action = ADEV_ATTENTION;
+			if (adev)
+				typec_altmode_attention(adev, p[1]);
 			return 0;
 		default:
 			break;
@@ -1131,13 +1120,13 @@ static int tcpm_pd_svdm(struct tcpm_port *port, struct typec_altmode *adev,
 		switch (cmd) {
 		case CMD_DISCOVER_IDENT:
 			/* 6.4.4.3.1 */
-			svdm_consume_identity(port, p, cnt);
+			svdm_consume_identity(port, payload, cnt);
 			response[0] = VDO(USB_SID_PD, 1, CMD_DISCOVER_SVID);
 			rlen = 1;
 			break;
 		case CMD_DISCOVER_SVID:
 			/* 6.4.4.3.2 */
-			if (svdm_consume_svids(port, p, cnt)) {
+			if (svdm_consume_svids(port, payload, cnt)) {
 				response[0] = VDO(USB_SID_PD, 1,
 						  CMD_DISCOVER_SVID);
 				rlen = 1;
@@ -1149,7 +1138,7 @@ static int tcpm_pd_svdm(struct tcpm_port *port, struct typec_altmode *adev,
 			break;
 		case CMD_DISCOVER_MODES:
 			/* 6.4.4.3.3 */
-			svdm_consume_modes(port, p, cnt);
+			svdm_consume_modes(port, payload, cnt);
 			modep->svid_index++;
 			if (modep->svid_index < modep->nsvids) {
 				u16 svid = modep->svids[modep->svid_index];
@@ -1162,15 +1151,23 @@ static int tcpm_pd_svdm(struct tcpm_port *port, struct typec_altmode *adev,
 		case CMD_ENTER_MODE:
 			if (adev && pdev) {
 				typec_altmode_update_active(pdev, true);
-				*adev_action = ADEV_QUEUE_VDM_SEND_EXIT_MODE_ON_FAIL;
+
+				if (typec_altmode_vdm(adev, p[0], &p[1], cnt)) {
+					response[0] = VDO(adev->svid, 1,
+							  CMD_EXIT_MODE);
+					response[0] |= VDO_OPOS(adev->mode);
+					return 1;
+				}
 			}
 			return 0;
 		case CMD_EXIT_MODE:
 			if (adev && pdev) {
 				typec_altmode_update_active(pdev, false);
+
 				/* Back to USB Operation */
-				*adev_action = ADEV_NOTIFY_USB_AND_QUEUE_VDM;
-				return 0;
+				WARN_ON(typec_altmode_notify(adev,
+							     TYPEC_STATE_USB,
+							     NULL));
 			}
 			break;
 		default:
@@ -1181,8 +1178,11 @@ static int tcpm_pd_svdm(struct tcpm_port *port, struct typec_altmode *adev,
 		switch (cmd) {
 		case CMD_ENTER_MODE:
 			/* Back to USB Operation */
-			*adev_action = ADEV_NOTIFY_USB_AND_QUEUE_VDM;
-			return 0;
+			if (adev)
+				WARN_ON(typec_altmode_notify(adev,
+							     TYPEC_STATE_USB,
+							     NULL));
+			break;
 		default:
 			break;
 		}
@@ -1192,30 +1192,24 @@ static int tcpm_pd_svdm(struct tcpm_port *port, struct typec_altmode *adev,
 	}
 
 	/* Informing the alternate mode drivers about everything */
-	*adev_action = ADEV_QUEUE_VDM;
+	if (adev)
+		typec_altmode_vdm(adev, p[0], &p[1], cnt);
+
 	return rlen;
 }
 
 static void tcpm_handle_vdm_request(struct tcpm_port *port,
 				    const __le32 *payload, int cnt)
 {
-	enum adev_actions adev_action = ADEV_NONE;
-	struct typec_altmode *adev;
-	u32 p[PD_MAX_PAYLOAD];
+	int rlen = 0;
 	u32 response[8] = { };
-	int i, rlen = 0;
-
-	for (i = 0; i < cnt; i++)
-		p[i] = le32_to_cpu(payload[i]);
-
-	adev = typec_match_altmode(port->port_altmode, ALTMODE_DISCOVERY_MAX,
-				   PD_VDO_VID(p[0]), PD_VDO_OPOS(p[0]));
+	u32 p0 = le32_to_cpu(payload[0]);
 
 	if (port->vdm_state == VDM_STATE_BUSY) {
 		/* If UFP responded busy retry after timeout */
-		if (PD_VDO_CMDT(p[0]) == CMDT_RSP_BUSY) {
+		if (PD_VDO_CMDT(p0) == CMDT_RSP_BUSY) {
 			port->vdm_state = VDM_STATE_WAIT_RSP_BUSY;
-			port->vdo_retry = (p[0] & ~VDO_CMDT_MASK) |
+			port->vdo_retry = (p0 & ~VDO_CMDT_MASK) |
 				CMDT_INIT;
 			mod_delayed_work(port->wq, &port->vdm_state_machine,
 					 msecs_to_jiffies(PD_T_VDM_BUSY));
@@ -1224,32 +1218,8 @@ static void tcpm_handle_vdm_request(struct tcpm_port *port,
 		port->vdm_state = VDM_STATE_DONE;
 	}
 
-	if (PD_VDO_SVDM(p[0]))
-		rlen = tcpm_pd_svdm(port, adev, p, cnt, response, &adev_action);
-
-	if (adev) {
-		switch (adev_action) {
-		case ADEV_NONE:
-			break;
-		case ADEV_NOTIFY_USB_AND_QUEUE_VDM:
-			WARN_ON(typec_altmode_notify(adev, TYPEC_STATE_USB, NULL));
-			typec_altmode_vdm(adev, p[0], &p[1], cnt);
-			break;
-		case ADEV_QUEUE_VDM:
-			typec_altmode_vdm(adev, p[0], &p[1], cnt);
-			break;
-		case ADEV_QUEUE_VDM_SEND_EXIT_MODE_ON_FAIL:
-			if (typec_altmode_vdm(adev, p[0], &p[1], cnt)) {
-				response[0] = VDO(adev->svid, 1, CMD_EXIT_MODE);
-				response[0] |= VDO_OPOS(adev->mode);
-				rlen = 1;
-			}
-			break;
-		case ADEV_ATTENTION:
-			typec_altmode_attention(adev, p[1]);
-			break;
-		}
-	}
+	if (PD_VDO_SVDM(p0))
+		rlen = tcpm_pd_svdm(port, payload, cnt, response);
 
 	if (rlen > 0) {
 		tcpm_queue_vdm(port, response[0], &response[1], rlen - 1);
@@ -2162,7 +2132,6 @@ static int tcpm_pd_select_pdo(struct tcpm_port *port, int *sink_pdo,
 
 	port->pps_data.supported = false;
 	port->usb_type = POWER_SUPPLY_USB_TYPE_PD;
-	power_supply_changed(port->psy);
 
 	/*
 	 * Select the source PDO providing the most power which has a
@@ -2187,7 +2156,6 @@ static int tcpm_pd_select_pdo(struct tcpm_port *port, int *sink_pdo,
 				port->pps_data.supported = true;
 				port->usb_type =
 					POWER_SUPPLY_USB_TYPE_PD_PPS;
-				power_supply_changed(port->psy);
 			}
 			continue;
 		default:
@@ -2345,7 +2313,6 @@ static unsigned int tcpm_pd_select_pps_apdo(struct tcpm_port *port)
 						  port->pps_data.out_volt));
 		port->pps_data.op_curr = min(port->pps_data.max_curr,
 					     port->pps_data.op_curr);
-		power_supply_changed(port->psy);
 	}
 
 	return src_pdo;
@@ -2581,7 +2548,6 @@ static int tcpm_set_charge(struct tcpm_port *port, bool charge)
 			return ret;
 	}
 	port->vbus_charge = charge;
-	power_supply_changed(port->psy);
 	return 0;
 }
 
@@ -2751,11 +2717,11 @@ static void tcpm_reset_port(struct tcpm_port *port)
 
 static void tcpm_detach(struct tcpm_port *port)
 {
-	if (tcpm_port_is_disconnected(port))
-		port->hard_reset_count = 0;
-
 	if (!port->attached)
 		return;
+
+	if (tcpm_port_is_disconnected(port))
+		port->hard_reset_count = 0;
 
 	tcpm_reset_port(port);
 }
@@ -3122,7 +3088,11 @@ static void run_state_machine(struct tcpm_port *port)
 				       tcpm_try_src(port) ? SRC_TRY
 							  : SNK_ATTACHED,
 				       0);
+		else
+			/* Wait for VBUS, but not forever */
+			tcpm_set_state(port, PORT_RESET, PD_T_PS_SOURCE_ON);
 		break;
+
 	case SRC_TRY:
 		port->try_src_count++;
 		tcpm_set_cc(port, tcpm_rp_cc(port));
@@ -3506,7 +3476,7 @@ static void run_state_machine(struct tcpm_port *port)
 		 */
 		tcpm_set_pwr_role(port, TYPEC_SOURCE);
 		tcpm_pd_send_control(port, PD_CTRL_PS_RDY);
-		tcpm_set_state(port, SRC_STARTUP, PD_T_SWAP_SRC_START);
+		tcpm_set_state(port, SRC_STARTUP, 0);
 		break;
 
 	case VCONN_SWAP_ACCEPT:
@@ -3679,7 +3649,6 @@ static void _tcpm_cc_change(struct tcpm_port *port, enum typec_cc_status cc1,
 			tcpm_set_state(port, SRC_ATTACH_WAIT, 0);
 		break;
 	case SRC_ATTACHED:
-	case SRC_STARTUP:
 	case SRC_SEND_CAPABILITIES:
 	case SRC_READY:
 		if (tcpm_port_is_disconnected(port) ||
@@ -3907,8 +3876,7 @@ static void _tcpm_pd_vbus_off(struct tcpm_port *port)
 	case SNK_TRYWAIT_DEBOUNCE:
 		break;
 	case SNK_ATTACH_WAIT:
-	case SNK_DEBOUNCED:
-		/* Do nothing, as TCPM is still waiting for vbus to reaach VSAFE5V to connect */
+		tcpm_set_state(port, SNK_UNATTACHED, 0);
 		break;
 
 	case SNK_NEGOTIATE_CAPABILITIES:
@@ -4695,7 +4663,7 @@ static int tcpm_psy_set_prop(struct power_supply *psy,
 		ret = -EINVAL;
 		break;
 	}
-	power_supply_changed(port->psy);
+
 	return ret;
 }
 
@@ -4843,7 +4811,6 @@ struct tcpm_port *tcpm_register_port(struct device *dev, struct tcpc_dev *tcpc)
 	err = devm_tcpm_psy_register(port);
 	if (err)
 		goto out_role_sw_put;
-	power_supply_changed(port->psy);
 
 	port->typec_port = typec_register_port(port->dev, &port->typec_caps);
 	if (IS_ERR(port->typec_port)) {

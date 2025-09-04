@@ -166,7 +166,6 @@ static int trace_define_generic_fields(void)
 
 	__generic_field(int, CPU, FILTER_CPU);
 	__generic_field(int, cpu, FILTER_CPU);
-	__generic_field(int, common_cpu, FILTER_CPU);
 	__generic_field(char *, COMM, FILTER_COMM);
 	__generic_field(char *, comm, FILTER_COMM);
 
@@ -365,6 +364,7 @@ static int __ftrace_event_enable_disable(struct trace_event_file *file,
 {
 	struct trace_event_call *call = file->event_call;
 	struct trace_array *tr = file->tr;
+	unsigned long file_flags = file->flags;
 	int ret = 0;
 	int disable;
 
@@ -388,8 +388,6 @@ static int __ftrace_event_enable_disable(struct trace_event_file *file,
 				break;
 			disable = file->flags & EVENT_FILE_FL_SOFT_DISABLED;
 			clear_bit(EVENT_FILE_FL_SOFT_MODE_BIT, &file->flags);
-			/* Disable use of trace_buffered_event */
-			trace_buffered_event_disable();
 		} else
 			disable = !(file->flags & EVENT_FILE_FL_SOFT_MODE);
 
@@ -428,8 +426,6 @@ static int __ftrace_event_enable_disable(struct trace_event_file *file,
 			if (atomic_inc_return(&file->sm_ref) > 1)
 				break;
 			set_bit(EVENT_FILE_FL_SOFT_MODE_BIT, &file->flags);
-			/* Enable use of trace_buffered_event */
-			trace_buffered_event_enable();
 		}
 
 		if (!(file->flags & EVENT_FILE_FL_ENABLED)) {
@@ -467,6 +463,15 @@ static int __ftrace_event_enable_disable(struct trace_event_file *file,
 			set_bit(EVENT_FILE_FL_WAS_ENABLED_BIT, &file->flags);
 		}
 		break;
+	}
+
+	/* Enable or disable use of trace_buffered_event */
+	if ((file_flags & EVENT_FILE_FL_SOFT_DISABLED) !=
+	    (file->flags & EVENT_FILE_FL_SOFT_DISABLED)) {
+		if (file->flags & EVENT_FILE_FL_SOFT_DISABLED)
+			trace_buffered_event_enable();
+		else
+			trace_buffered_event_disable();
 	}
 
 	return ret;
@@ -788,8 +793,6 @@ int ftrace_set_clr_event(struct trace_array *tr, char *buf, int set)
 	char *event = NULL, *sub = NULL, *match;
 	int ret;
 
-	if (!tr)
-		return -ENOENT;
 	/*
 	 * The buf format can be <subsystem>:<event-name>
 	 *  *:<event-name> means any event by that name.
@@ -1102,8 +1105,7 @@ system_enable_read(struct file *filp, char __user *ubuf, size_t cnt,
 	mutex_lock(&event_mutex);
 	list_for_each_entry(file, &tr->events, list) {
 		call = file->event_call;
-		if ((call->flags & TRACE_EVENT_FL_IGNORE_ENABLE) ||
-		    !trace_event_name(call) || !call->class || !call->class->reg)
+		if (!trace_event_name(call) || !call->class || !call->class->reg)
 			continue;
 
 		if (system && strcmp(call->class->system, system->name) != 0)
@@ -1699,10 +1701,9 @@ static const struct file_operations ftrace_set_event_pid_fops = {
 };
 
 static const struct file_operations ftrace_enable_fops = {
-	.open = tracing_open_file_tr,
+	.open = tracing_open_generic,
 	.read = event_enable_read,
 	.write = event_enable_write,
-	.release = tracing_release_file_tr,
 	.llseek = default_llseek,
 };
 
@@ -1719,10 +1720,9 @@ static const struct file_operations ftrace_event_id_fops = {
 };
 
 static const struct file_operations ftrace_event_filter_fops = {
-	.open = tracing_open_file_tr,
+	.open = tracing_open_generic,
 	.read = event_filter_read,
 	.write = event_filter_write,
-	.release = tracing_release_file_tr,
 	.llseek = default_llseek,
 };
 
@@ -2236,7 +2236,6 @@ void trace_event_eval_update(struct trace_eval_map **map, int len)
 				update_event_printk(call, map[i]);
 			}
 		}
-		cond_resched();
 	}
 	up_write(&trace_event_sem);
 }
@@ -2245,18 +2244,11 @@ static struct trace_event_file *
 trace_create_new_event(struct trace_event_call *call,
 		       struct trace_array *tr)
 {
-	struct trace_pid_list *pid_list;
 	struct trace_event_file *file;
 
 	file = kmem_cache_alloc(file_cachep, GFP_TRACE);
 	if (!file)
 		return NULL;
-
-	pid_list = rcu_dereference_protected(tr->filtered_pids,
-					     lockdep_is_held(&event_mutex));
-
-	if (pid_list)
-		file->flags |= EVENT_FILE_FL_PID_FILTER;
 
 	file->event_call = call;
 	file->tr = tr;
@@ -2348,10 +2340,7 @@ static int probe_remove_event_call(struct trace_event_call *call)
 		 * TRACE_REG_UNREGISTER.
 		 */
 		if (file->flags & EVENT_FILE_FL_ENABLED)
-			goto busy;
-
-		if (file->flags & EVENT_FILE_FL_WAS_ENABLED)
-			tr->clear_trace = true;
+			return -EBUSY;
 		/*
 		 * The do_for_each_event_file_safe() is
 		 * a double loop. After finding the call for this
@@ -2364,12 +2353,6 @@ static int probe_remove_event_call(struct trace_event_call *call)
 	__trace_remove_event_call(call);
 
 	return 0;
- busy:
-	/* No need to clear the trace now */
-	list_for_each_entry(tr, &ftrace_trace_arrays, list) {
-		tr->clear_trace = false;
-	}
-	return -EBUSY;
 }
 
 /* Remove an event_call */
@@ -2437,7 +2420,7 @@ static void trace_module_remove_events(struct module *mod)
 	 * over from this module may be passed to the new module events and
 	 * unexpected results may occur.
 	 */
-	tracing_reset_all_online_cpus_unlocked();
+	tracing_reset_all_online_cpus();
 }
 
 static int trace_module_notify(struct notifier_block *self,

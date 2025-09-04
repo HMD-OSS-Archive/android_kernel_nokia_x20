@@ -13,13 +13,11 @@
 #include <linux/kobject.h>
 #include <linux/platform_device.h>
 #include <linux/ipc_logging.h>
-#include <linux/power_supply.h>
 #include <dt-bindings/iio/qcom,spmi-vadc.h>
 #include <soc/qcom/icnss2.h>
 #include <soc/qcom/service-locator.h>
 #include <soc/qcom/service-notifier.h>
 #include "wlan_firmware_service_v01.h"
-#include <linux/timer.h>
 
 #define WCN6750_DEVICE_ID 0x6750
 #define ADRASTEA_DEVICE_ID 0xabcd
@@ -29,9 +27,6 @@
 #define ICNSS_SMEM_SEQ_NO_POS 16
 #define QCA6750_PATH_PREFIX    "qca6750/"
 #define ICNSS_MAX_FILE_NAME      35
-#define ICNSS_PCI_EP_WAKE_OFFSET 4
-#define ICNSS_DISABLE_M3_SSR 0
-#define ICNSS_ENABLE_M3_SSR 1
 
 extern uint64_t dynamic_feature_mask;
 
@@ -64,7 +59,6 @@ enum icnss_driver_event_type {
 	ICNSS_DRIVER_EVENT_QDSS_TRACE_FREE,
 	ICNSS_DRIVER_EVENT_M3_DUMP_UPLOAD_REQ,
 	ICNSS_DRIVER_EVENT_QDSS_TRACE_REQ_DATA,
-	ICNSS_DRIVER_EVENT_SUBSYS_RESTART_LEVEL,
 	ICNSS_DRIVER_EVENT_MAX,
 };
 
@@ -124,7 +118,6 @@ enum icnss_driver_state {
 	ICNSS_PDR,
 	ICNSS_DEL_SERVER,
 	ICNSS_COLD_BOOT_CAL,
-	ICNSS_QMI_DMS_CONNECTED,
 };
 
 struct ce_irq_list {
@@ -168,11 +161,6 @@ struct icnss_clk_cfg {
 	u32 required;
 };
 
-struct icnss_battery_level {
-	int lower_battery_threshold;
-	int ldo_voltage;
-};
-
 struct icnss_clk_info {
 	struct list_head list;
 	struct clk *clk;
@@ -193,12 +181,6 @@ enum icnss_smp2p_msg_id {
 	ICNSS_POWER_SAVE_ENTER = 1,
 	ICNSS_POWER_SAVE_EXIT,
 	ICNSS_TRIGGER_SSR,
-	ICNSS_PCI_EP_POWER_SAVE_ENTER = 6,
-	ICNSS_PCI_EP_POWER_SAVE_EXIT,
-};
-
-struct icnss_subsys_restart_level_data {
-	uint8_t restart_level;
 };
 
 struct icnss_stats {
@@ -279,9 +261,6 @@ struct icnss_stats {
 	u32 soc_wake_req;
 	u32 soc_wake_resp;
 	u32 soc_wake_err;
-	u32 restart_level_req;
-	u32 restart_level_resp;
-	u32 restart_level_err;
 };
 
 #define WLFW_MAX_TIMESTAMP_LEN 32
@@ -348,12 +327,6 @@ struct smp2p_out_info {
 	struct qcom_smem_state *smem_state;
 };
 
-struct icnss_dms_data {
-	u8 mac_valid;
-	u8 nv_mac_not_prov;
-	u8 mac[QMI_WLFW_MAC_ADDR_SIZE_V01];
-};
-
 struct icnss_priv {
 	uint32_t magic;
 	struct platform_device *pdev;
@@ -373,9 +346,6 @@ struct icnss_priv {
 	phys_addr_t mem_base_pa;
 	void __iomem *mem_base_va;
 	u32 mem_base_size;
-	phys_addr_t mhi_state_info_pa;
-	void __iomem *mhi_state_info_va;
-	u32 mhi_state_info_size;
 	struct iommu_domain *iommu_domain;
 	dma_addr_t smmu_iova_start;
 	size_t smmu_iova_len;
@@ -383,7 +353,6 @@ struct icnss_priv {
 	dma_addr_t smmu_iova_ipa_current;
 	size_t smmu_iova_ipa_len;
 	struct qmi_handle qmi;
-	struct qmi_handle qmi_dms;
 	struct list_head event_list;
 	struct list_head soc_wake_msg_list;
 	spinlock_t event_lock;
@@ -469,17 +438,6 @@ struct icnss_priv {
 	bool is_chain1_supported;
 	bool chain_reg_info_updated;
 	u32 hw_trc_override;
-	struct icnss_dms_data dms;
-	u8 use_nv_mac;
-	u32 wlan_en_delay_ms;
-	bool psf_supported;
-	struct notifier_block psf_nb;
-	struct power_supply *batt_psy;
-	int last_updated_voltage;
-	struct work_struct soc_update_work;
-	struct workqueue_struct *soc_update_wq;
-	unsigned long device_config;
-	struct timer_list recovery_timer;
 };
 
 struct icnss_reg_info {
@@ -488,7 +446,6 @@ struct icnss_reg_info {
 	uint32_t data_len;
 };
 
-void icnss_free_qdss_mem(struct icnss_priv *priv);
 char *icnss_driver_event_to_str(enum icnss_driver_event_type type);
 int icnss_call_driver_uevent(struct icnss_priv *priv,
 				    enum icnss_uevent uevent, void *data);
@@ -507,6 +464,5 @@ int icnss_get_cpr_info(struct icnss_priv *priv);
 int icnss_update_cpr_info(struct icnss_priv *priv);
 void icnss_add_fw_prefix_name(struct icnss_priv *priv, char *prefix_name,
 			      char *name);
-void icnss_recovery_timeout_hdlr(struct timer_list *t);
 #endif
 

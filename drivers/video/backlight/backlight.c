@@ -233,27 +233,7 @@ static ssize_t max_brightness_show(struct device *dev,
 
 	return sprintf(buf, "%d\n", bd->props.max_brightness);
 }
-
-#ifdef TARGET_PRODUCT_PUNISHER
-static ssize_t max_brightness_store(struct device *dev,
-                struct device_attribute *attr, const char *buf, size_t count)
-{
-        int rc;
-        struct backlight_device *bd = to_backlight_device(dev);
-        unsigned long brightness;
-
-        rc = kstrtoul(buf, 0, &brightness);
-        if (rc)
-                return rc;
-
-        bd->props.max_brightness = brightness;
-
-        return count;
-}
-static DEVICE_ATTR_RW(max_brightness);
-#else
 static DEVICE_ATTR_RO(max_brightness);
-#endif
 
 static ssize_t actual_brightness_show(struct device *dev,
 		struct device_attribute *attr, char *buf)
@@ -650,6 +630,12 @@ struct backlight_device *of_find_backlight(struct device *dev)
 			of_node_put(np);
 			if (!bd)
 				return ERR_PTR(-EPROBE_DEFER);
+			/*
+			 * Note: gpio_backlight uses brightness as
+			 * power state during probe
+			 */
+			if (!bd->props.brightness)
+				bd->props.brightness = bd->props.max_brightness;
 		}
 	}
 

@@ -115,15 +115,19 @@ static struct notifier_block cma_nb = {
 	.notifier_call = cma_showmem_notifier,
 };
 
-static void __init cma_activate_area(struct cma *cma)
+static int __init cma_activate_area(struct cma *cma)
 {
+	int bitmap_size = BITS_TO_LONGS(cma_bitmap_maxno(cma)) * sizeof(long);
 	unsigned long base_pfn = cma->base_pfn, pfn = base_pfn;
 	unsigned i = cma->count >> pageblock_order;
 	struct zone *zone;
 
-	cma->bitmap = bitmap_zalloc(cma_bitmap_maxno(cma), GFP_KERNEL);
-	if (!cma->bitmap)
-		goto out_error;
+	cma->bitmap = kzalloc(bitmap_size, GFP_KERNEL);
+
+	if (!cma->bitmap) {
+		cma->count = 0;
+		return -ENOMEM;
+	}
 
 	WARN_ON_ONCE(!pfn_valid(pfn));
 	zone = page_zone(pfn_to_page(pfn));
@@ -153,22 +157,25 @@ static void __init cma_activate_area(struct cma *cma)
 	spin_lock_init(&cma->mem_head_lock);
 #endif
 
-	return;
+	return 0;
 
 not_in_zone:
-	bitmap_free(cma->bitmap);
-out_error:
-	cma->count = 0;
 	pr_err("CMA area %s could not be activated\n", cma->name);
-	return;
+	kfree(cma->bitmap);
+	cma->count = 0;
+	return -EINVAL;
 }
 
 static int __init cma_init_reserved_areas(void)
 {
 	int i;
 
-	for (i = 0; i < cma_area_count; i++)
-		cma_activate_area(&cma_areas[i]);
+	for (i = 0; i < cma_area_count; i++) {
+		int ret = cma_activate_area(&cma_areas[i]);
+
+		if (ret)
+			return ret;
+	}
 
 	show_mem_notifier_register(&cma_nb);
 
@@ -543,7 +550,7 @@ struct page *cma_alloc(struct cma *cma, size_t count, unsigned int align,
 
 	if (ret && !no_warn) {
 		pr_err("%s: %s: alloc failed, req-size: %zu pages, ret: %d\n",
-			__func__, cma->name, count, ret);
+			__func__, cma->name, cma->count, ret);
 		cma_debug_show_areas(cma);
 	}
 

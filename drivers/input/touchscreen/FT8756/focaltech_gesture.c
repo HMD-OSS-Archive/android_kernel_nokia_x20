@@ -99,7 +99,7 @@ static struct fts_gesture_st fts_gesture_data;
 /*****************************************************************************
 * Static function prototypes
 *****************************************************************************/
-int gesture_mode = 0;//add for gesture switch.
+extern int gesture_mode;//add for gesture switch.
 
 static ssize_t fts_gesture_show(
     struct device *dev, struct device_attribute *attr, char *buf)
@@ -111,7 +111,7 @@ static ssize_t fts_gesture_show(
     mutex_lock(&ts_data->input_dev->mutex);
     fts_read_reg(FTS_REG_GESTURE_EN, &val);
     count = snprintf(buf, PAGE_SIZE, "Gesture Mode:%s\n",
-                     1 ? "On" : "Off");
+                     ts_data->gesture_mode ? "On" : "Off");
     count += snprintf(buf + count, PAGE_SIZE, "Reg(0xD0)=%d\n", val);
     mutex_unlock(&ts_data->input_dev->mutex);
 
@@ -127,10 +127,12 @@ static ssize_t fts_gesture_store(
     mutex_lock(&ts_data->input_dev->mutex);
     if (FTS_SYSFS_ECHO_ON(buf)) {
         FTS_DEBUG("enable gesture");
+        ts_data->gesture_mode = ENABLE;
         gesture_mode = 1;
         FTS_DEBUG("gesture_mode:0x%x", gesture_mode);
     } else if (FTS_SYSFS_ECHO_OFF(buf)) {
         FTS_DEBUG("disable gesture");
+        ts_data->gesture_mode = DISABLE;
         gesture_mode = 0;
         FTS_DEBUG("gesture_mode:0x%x", gesture_mode);
     }
