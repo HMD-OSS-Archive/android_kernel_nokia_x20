@@ -1,0 +1,7 @@
+config TINNO_PRODUCT_INFO
+    bool "TINNO_PRODUCT_INFO"
+    default y
+    
+config TINNO_TP_GESTURE
+    bool "TINNO_TP_GESTURE"
+    default n

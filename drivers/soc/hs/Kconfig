@@ -1,0 +1,11 @@
+
+source "drivers/soc/hs/base/Kconfig"
+
+source "drivers/soc/hs/efuse/Kconfig"
+
+source "drivers/soc/hs/pm/Kconfig"
+
+source "drivers/soc/hs/mm/Kconfig"
+
+source "drivers/soc/hs/audio/Kconfig"
+

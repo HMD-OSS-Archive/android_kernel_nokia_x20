@@ -1,0 +1,13 @@
+comment "HS product Infomation"
+
+config HS_PRODUCT_DEVINFO
+	tristate "device info register of product"
+	help
+	  Provide a methed to register the peripheral device
+	  infomation of product.
+
+config HS_DEBUG_CTRL
+	tristate "HS debug method"
+	help
+	  Say Y when you need debug your device.
+

@@ -1,0 +1,12 @@
+#
+# OEM device bootinfo configuration
+#
+
+config OEM_DEVINFO
+    tristate "device boot info"
+    help
+	Say Y here if you want to enable device boot info.
+	If unsure, say N.
+
+source "drivers/chino-e/ontimdbgcore/Kconfig"
+

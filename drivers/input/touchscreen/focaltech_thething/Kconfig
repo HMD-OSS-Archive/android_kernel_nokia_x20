@@ -1,0 +1,51 @@
+#
+# Focaltech Touchscreen driver configuration
+#
+
+config TOUCHSCREEN_FTS_THETHING
+	tristate "Focaltech Touchscreen"
+	help
+	  Say Y here if you have Focaltech touch panel.
+	  If unsure, say N.
+
+config TOUCHSCREEN_FTS_DIRECTORY
+	string "Focaltech ts directory name"
+	default "focaltech_touch"
+	depends on TOUCHSCREEN_FTS_THETHING
+
+config TOUCHSCREEN_FTS_KERNEL_READ_FW
+	bool "FocalTech touchscreens kernel read firmware function"
+	depends on TOUCHSCREEN_FTS_THETHING
+	help
+	  Say Y here if you need a Focaltech touchscreen kernel read firmware function.
+	  else say N
+
+config FT_INCELL_CHIP
+	bool "FocalTech incell touchscreens support."
+	depends on TOUCHSCREEN_FTS_THETHING
+	help
+	  Say Y here if you use a incell focaltech touchscreen.
+	  else say N
+
+config TOUCHSCREEN_FT_SPI_FH
+	bool "FocalTech touchscreens FH support."
+	depends on TOUCHSCREEN_FTS_THETHING
+	help
+	  Say Y here if you need a ft5X06 touchscreen FH function.
+	  else say N
+
+config TOUCHSCREEN_FT_SPI_GESTURE
+	bool "FocalTech touchscreens gesture function"
+	depends on TOUCHSCREEN_FTS_THETHING
+	help
+	  Say Y here if you need a ft8006p touchscreen gesture function.
+	  else say N
+
+config TOUCHSCREEN_FT_SPI_GLOVE
+	bool "FocalTech touchscreens glove mode function realized in driver"
+	depends on TOUCHSCREEN_FTS_THETHING
+	help
+	  Say Y here if you need a ft8xxx glove mode in driver.
+	  else say N
+
+#endif

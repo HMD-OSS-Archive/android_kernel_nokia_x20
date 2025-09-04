@@ -1,0 +1,58 @@
+#
+# Focaltech Touchscreen driver configuration
+#
+
+config TOUCHSCREEN_FT8719_SPI
+	tristate "Focaltech Touchscreen test"
+	depends on SPI_MASTER
+	help
+	  Say Y here if you have Focaltech touch panel.
+
+	  If unsure, say N.
+
+	  To compile this driver as a module, choose M here: the
+	  module will be called focal_spi_ts.
+    
+config FT_8719_INCELL_CHIP
+	bool "FocalTech incell touchscreens support."
+	depends on TOUCHSCREEN_FT8719_SPI
+	help
+	  Say Y here if you use a incell focaltech touchscreen.
+	  else say N
+
+config TOUCHSCREEN_FT8719_SPI_FH
+	bool "FocalTech touchscreens FH support."
+	depends on TOUCHSCREEN_FT8719_SPI
+	help
+	  Say Y here if you need a ft5X06 touchscreen FH function.
+	  else say N
+
+config TOUCHSCREEN_FT8719_SPI_GESTURE
+	bool "FocalTech touchscreens gesture function"
+	depends on TOUCHSCREEN_FT8719_SPI
+	help
+	  Say Y here if you need a ft8006p touchscreen gesture function.
+	  else say N
+config FT8719_FTS_DEBUG_EN
+	bool "FocalTech touchscreens used to print debug log info function"
+	depends on TOUCHSCREEN_FT8719_SPI
+	default n
+	help
+	  Say Y here if you need to print debug log info in debug version.
+	  else say N
+
+config FT8719_FTS_MT_PROTOCOL_B_EN
+	bool "FocalTech touchscreens used protocol A or B function"
+	depends on TOUCHSCREEN_FT8719_SPI
+	default n
+	help
+	  Say Y here if using protocol B.
+	  else say N
+
+config TOUCHSCREEN_FT8719_SPI_GLOVE
+	bool "FocalTech touchscreens glove mode function realized in driver"
+	depends on TOUCHSCREEN_FT8719_SPI
+	help
+	  Say Y here if you need a ft8xxx glove mode in driver.
+	  else say N
+

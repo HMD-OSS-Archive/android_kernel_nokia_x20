@@ -1,0 +1,103 @@
+// SPDX-License-Identifier: GPL-2.0-only
+/*
+ * LEDs driver for Sunlight
+ *
+ * Copyright (C) 2020 HMD
+ *
+ * Based on leds-ams-delta.c
+ */
+
+#include <linux/kernel.h>
+#include <linux/init.h>
+#include <linux/platform_device.h>
+#include <linux/leds.h>
+#include <linux/err.h>
+#include <linux/io.h>
+#include <linux/module.h>
+#include <linux/backlight.h>
+#include <linux/notifier.h>
+#define DRVNAME "sunlight"
+
+struct mutex sunlight_lock;
+struct platform_device *pdev = NULL;
+struct  backlight_device *s_backlight = NULL;
+int sunlight_flag = 0;
+int sunlight_set_sde_backlight(struct backlight_device *bd)
+{
+    return 0;
+}
+static void sunlight_led_set(struct led_classdev *led_cdev,
+		enum led_brightness value)
+{
+	mutex_lock(&sunlight_lock);
+	if(s_backlight){
+		if(value == 1){
+			sunlight_flag = 1;
+			sunlight_set_sde_backlight(s_backlight);
+		}else{
+			sunlight_flag = 0;
+			sunlight_set_sde_backlight(s_backlight);
+		}
+	}
+	dev_err(&pdev->dev, "Dom,sunlight_led_set sunlight_flag = %d,value = %d\n",sunlight_flag,value);
+	mutex_unlock(&sunlight_lock);
+}
+
+static struct led_classdev sunlight_led = {
+	.name		= "sunlight_led",
+	.brightness_set	= sunlight_led_set,
+	.flags		= LED_CORE_SUSPENDRESUME,
+};
+
+static int sunlight_led_probe(struct platform_device *pdev)
+{
+	int ret ;
+	mutex_init(&sunlight_lock);
+	ret = devm_led_classdev_register(&pdev->dev, &sunlight_led);
+	if(ret < 0){
+		dev_err(&pdev->dev, "can't register LED %s\n", sunlight_led.name);
+  		mutex_destroy(&sunlight_lock);
+	}
+	dev_err(&pdev->dev, "Dom,register LED %s\n", sunlight_led.name);
+	return ret;
+}
+
+static struct platform_driver sunlight_led_driver = {
+	.probe		= sunlight_led_probe,
+	.driver		= {
+		.name		= DRVNAME,
+	},
+};
+
+
+static int __init sunlight_led_init(void)
+{
+	int ret;
+	ret = platform_driver_register(&sunlight_led_driver);
+	if (ret < 0)
+  		goto out;
+
+  	pdev = platform_device_register_simple(DRVNAME, -1, NULL, 0);
+  	if (IS_ERR(pdev)) {
+  		ret = PTR_ERR(pdev);
+  		platform_driver_unregister(&sunlight_led_driver);
+  		goto out;
+  	}
+
+  out:
+	return ret;
+}
+
+static void __exit sunlight_led_exit(void)
+{
+	platform_device_unregister(pdev);
+	platform_driver_unregister(&sunlight_led_driver);
+}
+
+module_init(sunlight_led_init);
+module_exit(sunlight_led_exit);
+
+MODULE_AUTHOR("HMD");
+MODULE_DESCRIPTION("HMD sunlight led driver");
+MODULE_LICENSE("GPL");
+

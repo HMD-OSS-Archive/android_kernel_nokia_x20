@@ -1,0 +1,23 @@
+#
+#Fingerprint
+#
+menuconfig INPUT_FINGERPRINT
+       tristate "Fingerprint Config Choosen"
+	   default y
+	   help
+	   Say Y to can config fingerprint manufacturer
+
+config HS_FINGERPRINT
+	tristate "fingerprint drvier support"
+	help
+	  Say Y here to enable fingerprint driver support!
+
+config FINGERPRINT_GOODIX
+	tristate "generic goodix fingerprint driver"
+	help
+	add support for goodix fingerprint driver.
+
+
+source "drivers/input/fingerprint/cdfingerfp/Kconfig"
+source "drivers/input/fingerprint/fpr_FingerprintCard/Kconfig"
+source "drivers/input/fingerprint/fpsensor/Kconfig"

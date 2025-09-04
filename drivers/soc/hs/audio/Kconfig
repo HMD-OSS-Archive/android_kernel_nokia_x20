@@ -1,0 +1,5 @@
+
+config TTG_ACCESS_DIAG_PARTITION
+	bool "get info from diag partition"
+	help
+	  Provide a methed to get info from diag partition.

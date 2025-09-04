@@ -1,0 +1,32 @@
+menu "HMD HELP"
+config PRINTK_HMD_PREFIX
+	bool "Prefix cpu_id/status/pid/process_name/UTC to each kernel log"
+	default n
+	help
+	  PRINTK_HMD_PREFIX which is used to control whether to show
+	  process information about this log.
+	  the information about which cpu about this
+	  process in, and whether in isr.
+
+config HMD_PRINTK_UART_CONSOLE
+	bool "HMD printk UART controller"
+	default n
+	help
+	  HMD_PRINTK_UART_CONSOLE which is used to control whether to
+	  control printk to uart console.  when boot up finish
+	  uart console do not output printk log.
+	  also RD can set the setting by command.
+
+config HMD_PRINTK_UART_CONSOLE_DEFAULT_Y
+	bool "HMD printk UART controller default value"
+	default n
+	help
+	  HMD_PRINTK_UART_CONSOLE_DEFAULT_Y which is used to control whether to
+	  printk to uart console.  when boot up finish
+	  uart console do not output printk log.
+	  also RD can set the setting by command.
+	  y means enable uart log after boot.
+	  n means disable uart log after boot.
+
+endmenu
+
