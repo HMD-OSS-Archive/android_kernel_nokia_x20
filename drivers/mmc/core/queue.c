@@ -195,7 +195,9 @@ static void mmc_queue_setup_discard(struct request_queue *q,
 	max_discard = mmc_calc_max_discard(card);
 	if (!max_discard)
 		return;
-
+    // ling.yi add log for QKS-1405 format some sdcard too slowly
+    pr_warn("YYY____ mmc_queue_setup_discard max_discard(%d) ",max_discard);
+    pr_warn("YYY____ mmc_queue_setup_discard erase_shift(%d) uint_max(%u) card_perase(%u)host->max_busy_timeout(%u)",card->erase_shift,UINT_MAX,card->pref_erase, card->host->max_busy_timeout);
 	blk_queue_flag_set(QUEUE_FLAG_DISCARD, q);
 	blk_queue_max_discard_sectors(q, max_discard);
 	q->limits.discard_granularity = card->pref_erase << 9;

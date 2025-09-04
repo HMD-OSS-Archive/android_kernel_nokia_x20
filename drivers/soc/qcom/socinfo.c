@@ -429,12 +429,33 @@ msm_get_platform_subtype_id(struct device *dev,
 }
 ATTR_DEFINE(platform_subtype_id);
 
+// ning.wei++ for QKS EVT p-sensor
+#ifdef CONFIG_OEM_DEVINFO
+/*
+GPIO_86	GPIO_85	GPIO_84
+BOARD_ID2    BOARD_ID1	BOARD_ID0
+EVT0    0	0	0
+EVT     0	0	1
+DVT     0	1	0
+PVT     0	1	1
+MP      1	0	0
+*/
+extern unsigned int platform_board_id;
+#endif
 static ssize_t
 msm_get_platform_subtype(struct device *dev,
 			struct device_attribute *attr,
 			char *buf)
 {
 	uint32_t hw_subtype;
+
+        #ifdef CONFIG_OEM_DEVINFO
+        // ning.wei++ for QKS EVT p-sensor, EVT will use holi_stk3a5x_1.json
+        if ((platform_board_id&0x07) <= 1) {
+            return snprintf(buf, PAGE_SIZE, "%-.32s\n",
+			"EVT");
+        }
+        #endif
 
 	hw_subtype = socinfo_get_platform_subtype();
 	if (socinfo_get_platform_type() == HW_PLATFORM_QRD) {

@@ -64,11 +64,11 @@ int __blkdev_issue_discard(struct block_device *bdev, sector_t sector,
 				bio_allowed_max_sectors(q));
 
 		WARN_ON_ONCE((req_sects << 9) > UINT_MAX);
-// add flag for log  HMD ling.yi 
+// add flag for log  HMD ling.yi
         if(flagcc)
             pr_err("YYY____ __blkdev_issue_discard 1.1 nr_sects(%lu) ",nr_sects);
 		bio = blk_next_bio(bio, 0, gfp_mask);
-// add flag for log  HMD ling.yi 
+// add flag for log  HMD ling.yi
         if(flagcc)
             pr_err("YYY____ __blkdev_issue_discard 1.2 bio(%p) ",bio);
 		bio->bi_iter.bi_sector = sector;
@@ -87,7 +87,7 @@ int __blkdev_issue_discard(struct block_device *bdev, sector_t sector,
 		 */
 		cond_resched();
 	}
-// add flag for log  HMD ling.yi 
+// add flag for log  HMD ling.yi
     if(flagcc)
         pr_err("YYY____ __blkdev_issue_discard over ");
 	*biop = bio;
@@ -123,7 +123,7 @@ int blkdev_issue_discard(struct block_device *bdev, sector_t sector,
 		bio_put(bio);
 	}
 	blk_finish_plug(&plug);
-
+	pr_warn("YYY____ blkdev_issue_discard ret(%d)",ret);// add flag for log  HMD ling.yi
 	return ret;
 }
 EXPORT_SYMBOL(blkdev_issue_discard);

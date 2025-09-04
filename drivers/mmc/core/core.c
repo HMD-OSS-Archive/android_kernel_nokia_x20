@@ -2913,6 +2913,12 @@ unsigned int mmc_calc_max_discard(struct mmc_card *card)
 	struct mmc_host *host = card->host;
 	unsigned int max_discard, max_trim;
 
+//ling.yi add for QKS-1405 format some sdcard too slowly. start
+	if (!host->max_busy_timeout ||
+			(host->caps2 & MMC_CAP2_MAX_DISCARD_SIZE)){
+		return UINT_MAX;
+}
+//ling.yi add for QKS-1405 format some sdcard too slowly. end
 	/*
 	 * Without erase_group_def set, MMC erase timeout depends on clock
 	 * frequence which can change.  In that case, the best choice is
