@@ -1,0 +1,24 @@
+[submodule "techpack/camera"]
+        path = techpack/camera
+        url = admin@192.168.60.208:29418/platform/vendor/opensource/camera-kernel.git
+        ignore = all
+
+[submodule "techpack/audio"]
+        path = techpack/audio
+        url = admin@192.168.60.208:29418/platform/vendor/opensource/audio-kernel.git
+        ignore = all
+
+[submodule "techpack/dataipa"]
+        path = techpack/dataipa
+        url = admin@192.168.60.208:29418/platform/vendor/opensource/dataipa-kernel.git
+        ignore = all
+
+[submodule "techpack/display"]
+        path = techpack/display
+        url = admin@192.168.60.208:29418/platform/vendor/opensource/display-kernel.git
+        ignore = all
+
+[submodule "techpack/video"]
+        path = techpack/video
+        url = admin@192.168.60.208:29418/platform/vendor/opensource/video-kernel.git
+        ignore = all
